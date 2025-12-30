@@ -7,6 +7,9 @@
 #include "../utils/qr_codes.h"
 #include <esp_lcd_touch_gt911.h>
 #include <esp_log.h>
+#ifdef QR_PERF_DEBUG
+#include <esp_timer.h>
+#endif
 #include <k_quirc.h>
 #include <lvgl.h>
 #include <stdlib.h>
@@ -23,6 +26,9 @@
 #define PROGRESS_BLOC_PAD 1
 #define MAX_QR_PARTS 100
 #define DISPLAY_LOCK_TIMEOUT_MS 100
+#ifdef QR_PERF_DEBUG
+#define FPS_LOG_INTERVAL_MS 2000
+#endif
 #define RGB565_RED_BITS 5
 #define RGB565_GREEN_BITS 6
 #define RGB565_BLUE_BITS 5
@@ -92,6 +98,22 @@ static volatile bool is_fully_initialized = false;
 static volatile bool destruction_in_progress = false;
 static volatile int active_frame_operations = 0;
 static lv_timer_t *completion_timer = NULL;
+
+#ifdef QR_PERF_DEBUG
+typedef struct {
+  volatile uint32_t camera_frames;
+  volatile uint32_t decode_frames;
+  volatile uint32_t qr_detections;
+  volatile uint64_t total_decode_time_us;
+  volatile uint64_t total_grayscale_time_us;
+  volatile uint64_t total_quirc_time_us;
+  int64_t last_log_time;
+} qr_perf_metrics_t;
+
+static qr_perf_metrics_t perf_metrics = {0};
+static lv_obj_t *fps_label = NULL;
+#endif
+
 static void touch_event_cb(lv_event_t *e);
 static void camera_video_frame_operation(uint8_t *camera_buf,
                                          uint8_t camera_buf_index,
@@ -120,6 +142,65 @@ static void cleanup_progress_indicators(void);
 static void create_ur_progress_bar(void);
 static void update_ur_progress_bar(double percent_complete);
 static void cleanup_ur_progress_bar(void);
+
+#ifdef QR_PERF_DEBUG
+static void log_perf_metrics(void);
+static void reset_perf_metrics(void);
+
+static void reset_perf_metrics(void) {
+  memset((void *)&perf_metrics, 0, sizeof(perf_metrics));
+  perf_metrics.last_log_time = esp_timer_get_time();
+}
+
+static void log_perf_metrics(void) {
+  int64_t now = esp_timer_get_time();
+  int64_t elapsed_us = now - perf_metrics.last_log_time;
+
+  if (elapsed_us < (FPS_LOG_INTERVAL_MS * 1000)) {
+    return;
+  }
+
+  float elapsed_sec = elapsed_us / 1000000.0f;
+  float camera_fps = perf_metrics.camera_frames / elapsed_sec;
+  float decode_fps = perf_metrics.decode_frames / elapsed_sec;
+
+  float avg_decode_ms = 0;
+  float avg_grayscale_ms = 0;
+  float avg_quirc_ms = 0;
+
+  if (perf_metrics.decode_frames > 0) {
+    avg_decode_ms =
+        (perf_metrics.total_decode_time_us / perf_metrics.decode_frames) /
+        1000.0f;
+    avg_grayscale_ms =
+        (perf_metrics.total_grayscale_time_us / perf_metrics.decode_frames) /
+        1000.0f;
+    avg_quirc_ms =
+        (perf_metrics.total_quirc_time_us / perf_metrics.decode_frames) /
+        1000.0f;
+  }
+
+  ESP_LOGI(TAG,
+           "PERF: cam=%.1f fps, decode=%.1f fps, detections=%lu | "
+           "avg: total=%.1fms (gray=%.1fms, quirc=%.1fms)",
+           camera_fps, decode_fps, (unsigned long)perf_metrics.qr_detections,
+           avg_decode_ms, avg_grayscale_ms, avg_quirc_ms);
+
+  if (fps_label && bsp_display_lock(0)) {
+    lv_label_set_text_fmt(fps_label, "CAM:%.0f DEC:%.0f", camera_fps,
+                          decode_fps);
+    bsp_display_unlock();
+  }
+
+  perf_metrics.camera_frames = 0;
+  perf_metrics.decode_frames = 0;
+  perf_metrics.qr_detections = 0;
+  perf_metrics.total_decode_time_us = 0;
+  perf_metrics.total_grayscale_time_us = 0;
+  perf_metrics.total_quirc_time_us = 0;
+  perf_metrics.last_log_time = now;
+}
+#endif
 
 static void create_progress_indicators(int total_parts) {
   if (total_parts <= 1 || total_parts > MAX_QR_PARTS || !qr_scanner_screen) {
@@ -329,6 +410,10 @@ static void qr_decode_task(void *pvParameters) {
     if (closing || destruction_in_progress)
       break;
 
+#ifdef QR_PERF_DEBUG
+    log_perf_metrics();
+#endif
+
     if (xQueueReceive(qr_frame_queue, &frame_data, pdMS_TO_TICKS(100)) !=
         pdTRUE)
       continue;
@@ -336,11 +421,26 @@ static void qr_decode_task(void *pvParameters) {
     if (closing || destruction_in_progress)
       break;
 
+#ifdef QR_PERF_DEBUG
+    int64_t frame_start = esp_timer_get_time();
+    int64_t gray_start, gray_end, quirc_start, quirc_end;
+#endif
+
     uint8_t *qr_buf = k_quirc_begin(qr_decoder, NULL, NULL);
     if (qr_buf) {
+#ifdef QR_PERF_DEBUG
+      gray_start = esp_timer_get_time();
+#endif
       rgb565_to_grayscale_downsample(frame_data.frame_data, qr_buf,
                                      frame_data.width, frame_data.height);
+#ifdef QR_PERF_DEBUG
+      gray_end = esp_timer_get_time();
+      quirc_start = esp_timer_get_time();
+#endif
       k_quirc_end(qr_decoder, false);
+#ifdef QR_PERF_DEBUG
+      quirc_end = esp_timer_get_time();
+#endif
 
       int num_codes = k_quirc_count(qr_decoder);
       for (int i = 0; i < num_codes; i++) {
@@ -349,6 +449,10 @@ static void qr_decode_task(void *pvParameters) {
 
         k_quirc_error_t err = k_quirc_decode(qr_decoder, i, &qr_result);
         if (err == K_QUIRC_SUCCESS && qr_result.valid && qr_parser) {
+#ifdef QR_PERF_DEBUG
+          __atomic_add_fetch(&perf_metrics.qr_detections, 1, __ATOMIC_RELAXED);
+#endif
+
           int part_index = qr_parser_parse_with_len(
               qr_parser, (const char *)qr_result.data.payload,
               qr_result.data.payload_len);
@@ -375,6 +479,17 @@ static void qr_decode_task(void *pvParameters) {
           }
         }
       }
+
+#ifdef QR_PERF_DEBUG
+      int64_t frame_end = esp_timer_get_time();
+      __atomic_add_fetch(&perf_metrics.decode_frames, 1, __ATOMIC_RELAXED);
+      __atomic_add_fetch(&perf_metrics.total_grayscale_time_us,
+                         (gray_end - gray_start), __ATOMIC_RELAXED);
+      __atomic_add_fetch(&perf_metrics.total_quirc_time_us,
+                         (quirc_end - quirc_start), __ATOMIC_RELAXED);
+      __atomic_add_fetch(&perf_metrics.total_decode_time_us,
+                         (frame_end - frame_start), __ATOMIC_RELAXED);
+#endif
     }
   }
 
@@ -410,9 +525,10 @@ static bool qr_decoder_init(uint32_t width, uint32_t height) {
     goto error;
   }
 
-  BaseType_t task_result =
-      xTaskCreate(qr_decode_task, "qr_decode", QR_DECODE_TASK_STACK_SIZE, NULL,
-                  QR_DECODE_TASK_PRIORITY, &qr_decode_task_handle);
+  // Pin decode task to Core 1 to avoid competing with camera task on Core 0
+  BaseType_t task_result = xTaskCreatePinnedToCore(
+      qr_decode_task, "qr_decode", QR_DECODE_TASK_STACK_SIZE, NULL,
+      QR_DECODE_TASK_PRIORITY, &qr_decode_task_handle, 1);
   if (task_result != pdPASS) {
     ESP_LOGE(TAG, "Failed to create QR decode task");
     goto error;
@@ -497,6 +613,10 @@ static void camera_video_frame_operation(uint8_t *camera_buf,
       (current_bits & CAMERA_EVENT_DELETE)) {
     return;
   }
+
+#ifdef QR_PERF_DEBUG
+  __atomic_add_fetch(&perf_metrics.camera_frames, 1, __ATOMIC_RELAXED);
+#endif
 
   __atomic_add_fetch(&active_frame_operations, 1, __ATOMIC_SEQ_CST);
 
@@ -667,6 +787,15 @@ void qr_scanner_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   theme_apply_label(title_label, true);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 8);
 
+#ifdef QR_PERF_DEBUG
+  fps_label = lv_label_create(qr_scanner_screen);
+  lv_label_set_text(fps_label, "CAM:-- DEC:--");
+  lv_obj_set_style_text_color(fps_label, lv_color_hex(0x00FF00), 0);
+  lv_obj_set_style_text_font(fps_label, &lv_font_montserrat_14, 0);
+  lv_obj_align(fps_label, LV_ALIGN_TOP_LEFT, 10, 8);
+  reset_perf_metrics();
+#endif
+
   if (!camera_run()) {
     ESP_LOGE(TAG, "Failed to initialize camera");
     return;
@@ -731,6 +860,9 @@ void qr_scanner_page_destroy(void) {
     ESP_LOGW(TAG, "Failed to lock display for UI cleanup");
 
   camera_img = NULL;
+#ifdef QR_PERF_DEBUG
+  fps_label = NULL;
+#endif
   cleanup_progress_indicators();
   cleanup_ur_progress_bar();
   if (qr_scanner_screen) {
