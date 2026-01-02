@@ -77,6 +77,13 @@ CONFIG_CAM_MOTOR_DW9714=y
 CONFIG_CAMERA_OV5647_ENABLE_MOTOR_BY_GPIO0=y
 ```
 
+# References
+Kern is strongly inspired by [Krux](https://github.com/selfcustody/krux), sharing similar but simplified UI elements and flow.
+
+[Blockstream Jade](https://github.com/Blockstream/Jade) was a strong inspiration for the decision to use C language for efficient use of the hardware. Additionally, Kern's core library, [libwally](https://github.com/ElementsProject/libwally-core/), is shared with Jade.
+
+The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seedsigner) and the security focus of the pioneering [Specter-DIY](https://github.com/cryptoadvance/specter-diy) were also strong inspirations.
+
 ## Roadmap
 
 - ✅ Basic UI
