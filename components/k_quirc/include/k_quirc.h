@@ -22,9 +22,9 @@
 extern "C" {
 #endif
 
-/* Limits on the maximum size of QR-codes and their content. */
-#define K_QUIRC_MAX_BITMAP 3917
-#define K_QUIRC_MAX_PAYLOAD 8896
+/* Limits on the maximum size of QR-codes and their content (Max Version 24). */
+#define K_QUIRC_MAX_BITMAP 1597  /* ceil(113*113/8) for version 24 */
+#define K_QUIRC_MAX_PAYLOAD 2048 /* v24 ECC-L numeric max: 1852 chars */
 
 /* QR-code ECC types. */
 #define K_QUIRC_ECC_LEVEL_M 0

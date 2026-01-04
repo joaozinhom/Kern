@@ -1,6 +1,6 @@
 /*
  * K-Quirc Version Database
- * QR-code version information for versions 1-20
+ * QR-code version information for versions 1-24
  */
 
 #include "k_quirc_internal.h"
@@ -147,4 +147,32 @@ const struct quirc_version_info quirc_version_db[QUIRC_MAX_VERSION + 1] = {
              {.bs = 135, .dw = 107, .ns = 3},
              {.bs = 43, .dw = 15, .ns = 15},
              {.bs = 54, .dw = 24, .ns = 15}}},
+    {/* Version 21 */
+     .data_bytes = 1156,
+     .apat = {6, 28, 50, 72, 94, 0},
+     .ecc = {{.bs = 68, .dw = 42, .ns = 17},
+             {.bs = 144, .dw = 116, .ns = 4},
+             {.bs = 46, .dw = 16, .ns = 19},
+             {.bs = 50, .dw = 22, .ns = 17}}},
+    {/* Version 22 */
+     .data_bytes = 1258,
+     .apat = {6, 26, 50, 74, 98, 0},
+     .ecc = {{.bs = 74, .dw = 46, .ns = 17},
+             {.bs = 139, .dw = 111, .ns = 2},
+             {.bs = 37, .dw = 13, .ns = 34},
+             {.bs = 54, .dw = 24, .ns = 7}}},
+    {/* Version 23 */
+     .data_bytes = 1364,
+     .apat = {6, 30, 54, 78, 102, 0},
+     .ecc = {{.bs = 75, .dw = 47, .ns = 4},
+             {.bs = 151, .dw = 121, .ns = 4},
+             {.bs = 45, .dw = 15, .ns = 16},
+             {.bs = 54, .dw = 24, .ns = 11}}},
+    {/* Version 24 */
+     .data_bytes = 1474,
+     .apat = {6, 28, 54, 80, 106, 0},
+     .ecc = {{.bs = 73, .dw = 45, .ns = 6},
+             {.bs = 147, .dw = 117, .ns = 6},
+             {.bs = 46, .dw = 16, .ns = 30},
+             {.bs = 54, .dw = 24, .ns = 11}}},
 };

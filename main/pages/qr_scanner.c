@@ -10,17 +10,20 @@
 #ifdef QR_PERF_DEBUG
 #include <esp_timer.h>
 #endif
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <k_quirc.h>
 #include <lvgl.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define YIELD_ROW_MIDPOINT 320
 #define CAMERA_SCREEN_WIDTH 720
 #define CAMERA_SCREEN_HEIGHT 640
 #define QR_FRAME_QUEUE_SIZE 1
 #define QR_DECODE_TASK_STACK_SIZE 32768
 #define QR_DECODE_TASK_PRIORITY 5
-#define QR_DECODE_SCALE_FACTOR 2
+#define QR_DECODE_SCALE_FACTOR 1
 #define PROGRESS_BAR_HEIGHT 20
 #define PROGRESS_FRAME_PADD 2
 #define PROGRESS_BLOC_PAD 1
@@ -399,6 +402,8 @@ static void rgb565_to_grayscale_downsample(const uint8_t *rgb565_data,
       gray_data[dst_y * dst_width + dst_x] =
           r5_to_gray[r5] + g6_to_gray[g6] + b5_to_gray[b5];
     }
+    if (dst_y == YIELD_ROW_MIDPOINT)
+      vTaskDelay(1);
   }
 }
 

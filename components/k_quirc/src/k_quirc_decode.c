@@ -4,6 +4,9 @@
  */
 
 #include "k_quirc_internal.h"
+#include "esp_log.h"
+
+static const char *TAG = "k_quirc";
 
 #define MAX_POLY 64
 
@@ -793,11 +796,20 @@ k_quirc_error_t quirc_decode_internal(const struct quirc_code *code,
 void quirc_extract_internal(const struct k_quirc *q, int index,
                             struct quirc_code *code) {
   const struct quirc_grid *qr = &q->grids[index];
+  const int max_grid_size = QUIRC_MAX_VERSION * 4 + 17;
 
   if (index < 0 || index >= q->num_grids)
     return;
 
   memset(code, 0, sizeof(*code));
+
+  /* Bounds check to prevent buffer overflow in cell_bitmap */
+  if (qr->grid_size > max_grid_size) {
+    ESP_LOGW(TAG, "Grid size %d exceeds max %d, skipping extraction",
+             qr->grid_size, max_grid_size);
+    code->size = 0;
+    return;
+  }
 
   perspective_map(qr->c, 0.0f, 0.0f, &code->corners[0]);
   perspective_map(qr->c, qr->grid_size, 0.0f, &code->corners[1]);
