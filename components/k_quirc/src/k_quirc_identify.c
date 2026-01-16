@@ -326,6 +326,10 @@ static uint8_t otsu_threshold(uint32_t *histogram, uint32_t total) {
   return threshold;
 }
 
+// Percentage of image border to ignore for threshold calculation (0.0 - 0.5)
+// 0.2 = ignore 20% on each edge, leaving 60% central region
+#define K_QUIRC_THRESHOLD_MARGIN 0.2f
+
 #ifdef K_QUIRC_ADAPTIVE_THRESHOLD
 #define THRESHOLD_OFFSET_MAX 20
 static int threshold_offset = 10;
@@ -346,25 +350,36 @@ static void threshold(struct k_quirc *q, bool inverted) {
   int mid_x = w / 2;
   int mid_y = h / 2;
 
+  // Calculate symmetric sampling bounds around center (ignore border regions)
+  // Using half-widths ensures all 4 quadrants have equal area
+  int half_w = (int)(w * (0.5f - K_QUIRC_THRESHOLD_MARGIN));
+  int half_h = (int)(h * (0.5f - K_QUIRC_THRESHOLD_MARGIN));
+  int sample_start_x = mid_x - half_w;
+  int sample_end_x = mid_x + half_w;
+  int sample_start_y = mid_y - half_h;
+  int sample_end_y = mid_y + half_h;
+
   uint32_t hist_tl[256] = {0}, hist_tr[256] = {0};
   uint32_t hist_bl[256] = {0}, hist_br[256] = {0};
 
-  for (int y = 0; y < h; y++) {
+  // Build quadrant histograms from central region only
+  for (int y = sample_start_y; y < sample_end_y; y++) {
     quirc_pixel_t *row = pixels + y * w;
     if (y < mid_y) {
-      for (int x = 0; x < mid_x; x++)
+      for (int x = sample_start_x; x < mid_x; x++)
         hist_tl[row[x]]++;
-      for (int x = mid_x; x < w; x++)
+      for (int x = mid_x; x < sample_end_x; x++)
         hist_tr[row[x]]++;
     } else {
-      for (int x = 0; x < mid_x; x++)
+      for (int x = sample_start_x; x < mid_x; x++)
         hist_bl[row[x]]++;
-      for (int x = mid_x; x < w; x++)
+      for (int x = mid_x; x < sample_end_x; x++)
         hist_br[row[x]]++;
     }
   }
 
-  uint32_t quad_pixels = (uint32_t)mid_x * mid_y;
+  // All quadrants have equal area: half_w * half_h
+  uint32_t quad_pixels = (uint32_t)half_w * half_h;
 #ifdef K_QUIRC_ADAPTIVE_THRESHOLD
   uint8_t t_tl = clamp_threshold(otsu_threshold(hist_tl, quad_pixels) + threshold_offset);
   uint8_t t_tr = clamp_threshold(otsu_threshold(hist_tr, quad_pixels) + threshold_offset);
@@ -417,18 +432,33 @@ static void threshold(struct k_quirc *q, bool inverted) {
   }
 
 #else /* !K_QUIRC_BILINEAR_THRESHOLD */
-  uint32_t histogram[256] = {0};
-  int total_pixels = w * h;
+  // Calculate central region bounds (ignore border regions for histogram)
+  int margin_x = (int)(w * K_QUIRC_THRESHOLD_MARGIN);
+  int margin_y = (int)(h * K_QUIRC_THRESHOLD_MARGIN);
+  int sample_start_x = margin_x;
+  int sample_end_x = w - margin_x;
+  int sample_start_y = margin_y;
+  int sample_end_y = h - margin_y;
 
-  for (int i = 0; i < total_pixels; i++)
-    histogram[pixels[i]]++;
+  // Build histogram from central region only
+  uint32_t histogram[256] = {0};
+  uint32_t sampled_pixels = 0;
+  for (int y = sample_start_y; y < sample_end_y; y++) {
+    quirc_pixel_t *row = pixels + y * w;
+    for (int x = sample_start_x; x < sample_end_x; x++) {
+      histogram[row[x]]++;
+      sampled_pixels++;
+    }
+  }
 
 #ifdef K_QUIRC_ADAPTIVE_THRESHOLD
-  uint8_t t = clamp_threshold(otsu_threshold(histogram, (uint32_t)total_pixels) + threshold_offset);
+  uint8_t t = clamp_threshold(otsu_threshold(histogram, sampled_pixels) + threshold_offset);
 #else
-  uint8_t t = otsu_threshold(histogram, (uint32_t)total_pixels);
+  uint8_t t = otsu_threshold(histogram, sampled_pixels);
 #endif
 
+  // Apply threshold to all pixels (not just sampled region)
+  int total_pixels = w * h;
   if (inverted) {
     for (int i = 0; i < total_pixels; i++)
       pixels[i] = (pixels[i] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
