@@ -101,6 +101,7 @@ static void return_from_qr_scanner_cb(void) {
   int detected_format = qr_scanner_get_format();
 
   char *qr_content = NULL;
+  size_t qr_content_len = 0;
   bool parse_success = false;
 
   if (detected_format == FORMAT_UR) {
@@ -112,21 +113,30 @@ static void return_from_qr_scanner_cb(void) {
       // Decode PSBT from UR CBOR
       psbt_data_t *psbt_data = psbt_from_cbor(cbor_data, cbor_len);
       if (psbt_data) {
-        // Get raw PSBT bytes
+        // Get raw PSBT bytes and parse directly without base64 conversion
         size_t psbt_len;
         const uint8_t *psbt_bytes = psbt_get_data(psbt_data, &psbt_len);
 
-        // Convert to base64
-        char *psbt_b64 = NULL;
-        if (psbt_bytes && wally_base64_from_bytes(psbt_bytes, psbt_len, 0,
-                                                  &psbt_b64) == WALLY_OK) {
-          parse_success = parse_and_display_psbt(psbt_b64);
-          wally_free_string(psbt_b64);
+        if (psbt_bytes) {
+          cleanup_psbt_data();
+          parse_success = (wally_psbt_from_bytes(psbt_bytes, psbt_len, 0,
+                                                 &current_psbt) == WALLY_OK);
         }
         psbt_free(psbt_data);
       }
     }
+  } else if (detected_format == FORMAT_BBQR) {
+    // BBQr returns raw binary PSBT data - parse directly without base64 conversion
+    qr_content = qr_scanner_get_completed_content_with_len(&qr_content_len);
+    if (qr_content && qr_content_len > 0) {
+      cleanup_psbt_data();
+      parse_success = (wally_psbt_from_bytes((const uint8_t *)qr_content,
+                                             qr_content_len, 0,
+                                             &current_psbt) == WALLY_OK);
+      free(qr_content);
+    }
   } else {
+    // Other formats (PMOFN, NONE) return base64 encoded data
     qr_content = qr_scanner_get_completed_content();
     if (qr_content) {
       parse_success = parse_and_display_psbt(qr_content);

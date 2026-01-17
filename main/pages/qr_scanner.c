@@ -595,6 +595,12 @@ static void qr_decode_task(void *pvParameters) {
               double percent_complete = ur_decoder_estimated_percent_complete(
                   (ur_decoder_t *)qr_parser->ur_decoder);
               update_ur_progress_bar(percent_complete);
+            } else if (qr_parser->format == FORMAT_BBQR) {
+              // BBQr multi-part progress
+              if (qr_parser->total > 1 && !progress_frame)
+                create_progress_indicators(qr_parser->total);
+              if (part_index >= 0 && qr_parser->total > 1)
+                update_progress_indicator(part_index);
             }
 
             if (qr_parser_is_complete(qr_parser)) {

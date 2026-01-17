@@ -1,4 +1,5 @@
 #include "qr_viewer.h"
+#include "../../components/bbqr/src/bbqr.h"
 #include "../../components/cUR/src/types/psbt.h"
 #include "../../components/cUR/src/ur_encoder.h"
 #include "../../managed_components/lvgl__lvgl/src/libs/qrcode/qrcodegen.h"
@@ -383,11 +384,12 @@ bool qr_viewer_page_create_with_format(lv_obj_t *parent, int qr_format,
     return false;
   }
 
-  if (qr_format != FORMAT_UR) {
+  if (qr_format != FORMAT_UR && qr_format != FORMAT_BBQR) {
     qr_viewer_page_create(parent, content, title, return_cb);
     return true;
   }
 
+  // Decode base64 content to binary PSBT
   size_t max_decoded_len = (strlen(content) * 3) / 4 + 1;
   uint8_t *psbt_bytes = (uint8_t *)malloc(max_decoded_len);
   if (!psbt_bytes) {
@@ -402,6 +404,51 @@ bool qr_viewer_page_create_with_format(lv_obj_t *parent, int qr_format,
     return false;
   }
 
+  if (qr_format == FORMAT_BBQR) {
+    // Encode as BBQr
+    BBQrParts *bbqr_parts =
+        bbqr_encode(psbt_bytes, psbt_len, BBQR_TYPE_PSBT, MAX_QR_CHARS_PER_FRAME);
+    free(psbt_bytes);
+
+    if (!bbqr_parts) {
+      return false;
+    }
+
+    return_callback = return_cb;
+    message_timer = NULL;
+    animation_timer = NULL;
+
+    qr_parts_count = bbqr_parts->count;
+    qr_parts = malloc(qr_parts_count * sizeof(QRViewerPart));
+    if (!qr_parts) {
+      bbqr_parts_free(bbqr_parts);
+      return false;
+    }
+
+    for (int i = 0; i < qr_parts_count; i++) {
+      qr_parts[i].len = strlen(bbqr_parts->parts[i]);
+      qr_parts[i].data = strdup(bbqr_parts->parts[i]);
+      if (!qr_parts[i].data) {
+        for (int j = 0; j < i; j++) {
+          free(qr_parts[j].data);
+        }
+        free(qr_parts);
+        qr_parts = NULL;
+        qr_parts_count = 0;
+        bbqr_parts_free(bbqr_parts);
+        return false;
+      }
+    }
+    bbqr_parts_free(bbqr_parts);
+
+    if (!setup_qr_viewer_ui(parent, title)) {
+      cleanup_qr_parts();
+      return false;
+    }
+    return true;
+  }
+
+  // FORMAT_UR path
   psbt_data_t *psbt_data = psbt_new(psbt_bytes, psbt_len);
   free(psbt_bytes);
   if (!psbt_data) {

@@ -1,4 +1,5 @@
 #include "qr_codes.h"
+#include "../../components/bbqr/src/bbqr.h"
 #include "../../components/cUR/src/ur_decoder.h"
 #include <ctype.h>
 #include <math.h>
@@ -182,18 +183,13 @@ int qr_parser_parse_with_len(QRPartParser *parser, const char *data,
       return (int)processed - 1;
     }
   } else if (parser->format == FORMAT_BBQR) {
-    // TODO: Implement BBQR format parsing
-    // Would need to parse BBQR header and extract part data
-    /*
-    char *part;
-    int index, total;
-    if (parse_bbqr(data, &part, &index, &total)) {
-        add_part(parser, index, part, strlen(part));
-        parser->total = total;
-        free(part);
-        return index;
+    BBQrPart part;
+    if (bbqr_parse_part(data, data_len, &part)) {
+      // Store payload (payload_len may differ from strlen if binary)
+      add_part(parser, part.index, part.payload, part.payload_len);
+      parser->total = part.total;
+      return part.index;
     }
-    */
   }
 
   return -1;
@@ -246,8 +242,57 @@ char *qr_parser_result(QRPartParser *parser, size_t *result_len) {
   }
 
   if (parser->format == FORMAT_BBQR) {
-    // TODO: Decode BBQR and return result
-    return NULL;
+    // Sort parts by index
+    qsort(parser->parts, parser->parts_count, sizeof(QRPart *), compare_parts);
+
+    // Calculate total payload length
+    size_t total_payload_len = 0;
+    for (int i = 0; i < parser->parts_count; i++) {
+      total_payload_len += parser->parts[i]->data_len;
+    }
+
+    // Combine payloads
+    char *combined = (char *)malloc(total_payload_len + 1);
+    if (!combined) {
+      return NULL;
+    }
+
+    size_t offset = 0;
+    for (int i = 0; i < parser->parts_count; i++) {
+      memcpy(combined + offset, parser->parts[i]->data,
+             parser->parts[i]->data_len);
+      offset += parser->parts[i]->data_len;
+    }
+    combined[total_payload_len] = '\0';
+
+    // Decode payload (base32/hex decode + optional decompression)
+    size_t decoded_len = 0;
+    uint8_t *decoded = bbqr_decode_payload(parser->bbqr->encoding, combined,
+                                           total_payload_len, &decoded_len);
+    free(combined);
+
+    if (!decoded) {
+      return NULL;
+    }
+
+    // Store decoded payload in bbqr structure
+    if (parser->bbqr->payload) {
+      free(parser->bbqr->payload);
+    }
+    parser->bbqr->payload = (char *)decoded;
+
+    if (result_len) {
+      *result_len = decoded_len;
+    }
+
+    // Return a copy of the decoded data
+    char *result = (char *)malloc(decoded_len + 1);
+    if (!result) {
+      return NULL;
+    }
+    memcpy(result, decoded, decoded_len);
+    result[decoded_len] = '\0';
+    return result;
   }
 
   // Sort parts by index
@@ -314,15 +359,20 @@ static int detect_format(const char *data, BBQrCode **bbqr) {
     }
   } else if (starts_with_case_insensitive(data, "ur:")) {
     return FORMAT_UR;
-  } else if (strncmp(data, "B$", 2) == 0) {
-    // TODO: Implement BBQR format detection
-    // Would need to check known encodings and file types
-    /*
-    if (is_known_filetype(data[3]) && is_known_encoding(data[2])) {
-        *bbqr = create_bbqr(NULL, data[2], data[3]);
-        return FORMAT_BBQR;
+  } else if (strncmp(data, "B$", 2) == 0 && strlen(data) >= BBQR_HEADER_LEN) {
+    // Validate BBQr header (convert to uppercase for validation)
+    char encoding = toupper((unsigned char)data[2]);
+    char file_type = toupper((unsigned char)data[3]);
+    if (bbqr_is_valid_encoding(encoding) && bbqr_is_valid_file_type(file_type)) {
+      // Create BBQrCode structure
+      *bbqr = (BBQrCode *)calloc(1, sizeof(BBQrCode));
+      if (*bbqr) {
+        (*bbqr)->encoding = encoding;
+        (*bbqr)->file_type = file_type;
+        (*bbqr)->payload = NULL;
+      }
+      return FORMAT_BBQR;
     }
-    */
   }
 
   return FORMAT_NONE;
@@ -384,8 +434,6 @@ static void find_min_num_parts(const char *data, size_t data_len, int max_width,
 
     *part_size = (data_len + *num_parts - 1) / *num_parts;
   } else if (qr_format == FORMAT_UR) {
-    // TODO: Implement UR format calculation
-    // Similar to Python version but adapted for C
     qr_capacity -= UR_GENERIC_PREFIX_LENGTH;
     qr_capacity -= (UR_CBOR_PREFIX_LEN + UR_BYTEWORDS_CRC_LEN) * 2;
     qr_capacity = (qr_capacity > UR_MIN_FRAGMENT_LENGTH)
@@ -398,7 +446,6 @@ static void find_min_num_parts(const char *data, size_t data_len, int max_width,
     *part_size = (*part_size > UR_MIN_FRAGMENT_LENGTH) ? *part_size
                                                        : UR_MIN_FRAGMENT_LENGTH;
   } else if (qr_format == FORMAT_BBQR) {
-    // TODO: Implement BBQR format calculation
     int max_part_size = qr_capacity - BBQR_PREFIX_LENGTH;
     if ((int)data_len < max_part_size) {
       *num_parts = 1;
