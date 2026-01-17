@@ -12,6 +12,7 @@
 #include "base32.h"
 #include "bbqr.h"
 #include "miniz.h"
+#include "bbqr_samples.h"
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -377,6 +378,146 @@ void test_real_bbqr_decode(void) {
     PASS();
 }
 
+/**
+ * @brief Helper to verify BBQr decoding against test vectors
+ */
+void verify_bbqr_decode(const char *test_name, const char **parts, int count, 
+                        const uint8_t *expected, size_t expected_len) {
+    printf("Testing vector: %s... ", test_name);
+
+    char *assembled_payload = NULL;
+    size_t assembled_len = 0;
+    char encoding = 0;
+    char file_type = 0;
+
+    // Verify and assemble parts
+    for (int i = 0; i < count; i++) {
+        BBQrPart part;
+        if (!bbqr_parse_part(parts[i], strlen(parts[i]), &part)) {
+             free(assembled_payload);
+             FAIL("Parse failed for part");
+             return;
+        }
+        
+        if (i == 0) {
+            encoding = part.encoding;
+            file_type = part.file_type;
+            if (part.total != count) {
+                 free(assembled_payload);
+                 FAIL("Wrong total count in header");
+                 return;
+            }
+        } else {
+            if (part.encoding != encoding || part.file_type != file_type) {
+                free(assembled_payload);
+                FAIL("Inconsistent header info");
+                return;
+            }
+        }
+        
+        // Ensure parts are provided in order for this simple test harness
+        if (part.index != i) {
+             free(assembled_payload);
+             FAIL("Parts out of order");
+             return;
+        }
+
+        // Append payload
+        char *new_payload = realloc(assembled_payload, assembled_len + part.payload_len);
+        if (!new_payload) {
+            free(assembled_payload);
+            FAIL("Memory allocation");
+            return;
+        }
+        assembled_payload = new_payload;
+        memcpy(assembled_payload + assembled_len, part.payload, part.payload_len);
+        assembled_len += part.payload_len;
+    }
+
+    size_t decoded_len = 0;
+    uint8_t *decoded = bbqr_decode_payload(encoding, assembled_payload, assembled_len, &decoded_len);
+    free(assembled_payload);
+
+    if (!decoded) {
+        FAIL("Decode failed");
+        return;
+    }
+
+    if (decoded_len != expected_len) {
+        printf("Expected len %zu, got %zu. ", expected_len, decoded_len);
+        if (decoded_len > expected_len) {
+            printf("Extra bytes at end: ");
+            for(size_t i=expected_len; i<decoded_len; i++) printf("%02x ", decoded[i]);
+            printf("\n");
+        }
+        free(decoded);
+        FAIL("Length mismatch");
+        return;
+    }
+
+    if (memcmp(decoded, expected, expected_len) != 0) {
+        free(decoded);
+        FAIL("Data mismatch");
+        return;
+    }
+
+    free(decoded);
+    PASS();
+}
+
+void test_vectors(void) {
+    printf("Running Test Vectors...\n");
+
+    // Descriptors
+    verify_bbqr_decode("Nunchuk Single", bbqr_desc_nunchuk_single_parts,
+                       BBQR_ARRAY_LEN(bbqr_desc_nunchuk_single_parts),
+                       (const uint8_t*)bbqr_desc_nunchuk_single_expected,
+                       strlen(bbqr_desc_nunchuk_single_expected));
+
+    verify_bbqr_decode("Nunchuk Multi", bbqr_desc_nunchuk_multi_parts,
+                       BBQR_ARRAY_LEN(bbqr_desc_nunchuk_multi_parts),
+                       (const uint8_t*)bbqr_desc_nunchuk_multi_expected,
+                       strlen(bbqr_desc_nunchuk_multi_expected));
+
+    verify_bbqr_decode("Sparrow Single", bbqr_desc_sparrow_single_parts,
+                       BBQR_ARRAY_LEN(bbqr_desc_sparrow_single_parts),
+                       (const uint8_t*)bbqr_desc_sparrow_single_expected,
+                       strlen(bbqr_desc_sparrow_single_expected));
+
+    verify_bbqr_decode("Sparrow Multi", bbqr_desc_sparrow_multi_parts,
+                       BBQR_ARRAY_LEN(bbqr_desc_sparrow_multi_parts),
+                       (const uint8_t*)bbqr_desc_sparrow_multi_expected,
+                       strlen(bbqr_desc_sparrow_multi_expected));
+
+    // JSON
+    verify_bbqr_decode("Coldcard JSON", bbqr_json_coldcard_parts,
+                       BBQR_ARRAY_LEN(bbqr_json_coldcard_parts),
+                       bbqr_json_coldcard_expected, bbqr_json_coldcard_expected_len);
+
+    // PSBTs (Zlib)
+    verify_bbqr_decode("Nunchuk PSBT", bbqr_nunchuk_psbt_parts,
+                       BBQR_ARRAY_LEN(bbqr_nunchuk_psbt_parts),
+                       bbqr_nunchuk_psbt_bytes, bbqr_nunchuk_psbt_bytes_len);
+
+    verify_bbqr_decode("Sparrow PSBT", bbqr_sparrow_psbt_parts,
+                       BBQR_ARRAY_LEN(bbqr_sparrow_psbt_parts),
+                       bbqr_sparrow_psbt_bytes, bbqr_sparrow_psbt_bytes_len);
+
+    // PSBTs (Base32 - No Compression)
+    verify_bbqr_decode("Nunchuk PSBT (NC)", bbqr_nunchuk_psbt_nc_parts,
+                       BBQR_ARRAY_LEN(bbqr_nunchuk_psbt_nc_parts),
+                       bbqr_nunchuk_psbt_bytes, bbqr_nunchuk_psbt_bytes_len);
+
+    verify_bbqr_decode("Sparrow PSBT (NC)", bbqr_sparrow_psbt_nc_parts,
+                       BBQR_ARRAY_LEN(bbqr_sparrow_psbt_nc_parts),
+                       bbqr_sparrow_psbt_bytes, bbqr_sparrow_psbt_bytes_len);
+
+    // Signed PSBT Hex
+    verify_bbqr_decode("Signed PSBT (Hex)", bbqr_signed_psbt_hex_parts,
+                       BBQR_ARRAY_LEN(bbqr_signed_psbt_hex_parts),
+                       bbqr_signed_psbt_bytes, bbqr_signed_psbt_bytes_len);
+}
+
 int main(void) {
     printf("BBQr Test Suite\n");
     printf("================\n\n");
@@ -389,6 +530,7 @@ int main(void) {
     test_miniz_roundtrip();
     test_bbqr_roundtrip();
     test_real_bbqr_decode();
+    test_vectors();
 
     printf("\n================\n");
     printf("Results: %d passed, %d failed\n", tests_passed, tests_failed);
