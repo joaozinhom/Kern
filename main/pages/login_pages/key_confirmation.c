@@ -3,7 +3,6 @@
 #include "../../ui_components/flash_error.h"
 #include "../../ui_components/icons/icons_36.h"
 #include "../../ui_components/theme.h"
-#include "../../ui_components/ui_input_helpers.h"
 #include "../../utils/memory_utils.h"
 #include "../../utils/mnemonic_qr.h"
 #include "../../wallet/wallet.h"
@@ -13,19 +12,21 @@
 #include <wally_bip39.h>
 #include <wally_core.h>
 
+#define LOADING_DELAY_MS 2000
+
 static lv_obj_t *key_confirmation_screen = NULL;
+static lv_timer_t *loading_timer = NULL;
 static void (*return_callback)(void) = NULL;
 static void (*success_callback)(void) = NULL;
 static char *mnemonic_content = NULL;
 
-static void back_btn_cb(lv_event_t *e) {
-  (void)e;
-  if (return_callback)
-    return_callback();
-}
+static void loading_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (loading_timer) {
+    lv_timer_del(loading_timer);
+    loading_timer = NULL;
+  }
 
-static void load_btn_cb(lv_event_t *e) {
-  (void)e;
   if (key_load_from_mnemonic(mnemonic_content, NULL, false)) {
     if (!wallet_init(WALLET_NETWORK_MAINNET)) {
       show_flash_error("Failed to initialize wallet", return_callback, 0);
@@ -44,11 +45,14 @@ static void create_ui(const char *fingerprint_hex) {
   theme_apply_screen(key_confirmation_screen);
   lv_obj_clear_flag(key_confirmation_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_create_back_button(key_confirmation_screen, back_btn_cb);
-
   lv_obj_t *center = theme_create_flex_column(key_confirmation_screen);
-  lv_obj_set_style_pad_row(center, 30, 0);
+  lv_obj_set_style_pad_row(center, 20, 0);
   lv_obj_align(center, LV_ALIGN_CENTER, 0, 0);
+
+  lv_obj_t *loading_label = lv_label_create(center);
+  lv_label_set_text(loading_label, "Loading");
+  lv_obj_set_style_text_font(loading_label, theme_font_medium(), 0);
+  lv_obj_set_style_text_color(loading_label, main_color(), 0);
 
   lv_obj_t *fp_row = theme_create_flex_row(center);
   lv_obj_set_style_pad_column(fp_row, 8, 0);
@@ -63,16 +67,8 @@ static void create_ui(const char *fingerprint_hex) {
   lv_obj_set_style_text_font(fp_text, theme_font_medium(), 0);
   lv_obj_set_style_text_color(fp_text, highlight_color(), 0);
 
-  lv_obj_t *btn = lv_btn_create(center);
-  lv_obj_set_size(btn, 200, 70);
-  theme_apply_touch_button(btn, false);
-  lv_obj_add_event_cb(btn, load_btn_cb, LV_EVENT_CLICKED, NULL);
-
-  lv_obj_t *btn_label = lv_label_create(btn);
-  lv_label_set_text(btn_label, "Load");
-  lv_obj_set_style_text_font(btn_label, theme_font_medium(), 0);
-  lv_obj_set_style_text_color(btn_label, main_color(), 0);
-  lv_obj_center(btn_label);
+  loading_timer = lv_timer_create(loading_timer_cb, LOADING_DELAY_MS, NULL);
+  lv_timer_set_repeat_count(loading_timer, 1);
 }
 
 void key_confirmation_page_create(lv_obj_t *parent, void (*return_cb)(void),
@@ -128,6 +124,10 @@ void key_confirmation_page_hide(void) {
 }
 
 void key_confirmation_page_destroy(void) {
+  if (loading_timer) {
+    lv_timer_del(loading_timer);
+    loading_timer = NULL;
+  }
   SAFE_FREE_STATIC(mnemonic_content);
   if (key_confirmation_screen) {
     lv_obj_del(key_confirmation_screen);

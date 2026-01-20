@@ -6,6 +6,7 @@
 #include "../../../ui_components/ui_menu.h"
 #include "../../home_pages/home.h"
 #include "../key_confirmation.h"
+#include "../mnemonic_editor.h"
 #include "dice_rolls.h"
 #include <lvgl.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ static void from_dice_rolls_cb(void);
 static void from_camera_cb(void);
 static void back_cb(void);
 static void return_from_dice_rolls_cb(void);
+static void return_from_mnemonic_editor_cb(void);
 static void return_from_key_confirmation_cb(void);
 static void success_from_key_confirmation_cb(void);
 
@@ -27,14 +29,19 @@ static void return_from_dice_rolls_cb(void) {
   dice_rolls_page_destroy();
 
   if (mnemonic) {
-    key_confirmation_page_create(
-        lv_screen_active(), return_from_key_confirmation_cb,
-        success_from_key_confirmation_cb, mnemonic, strlen(mnemonic));
-    key_confirmation_page_show();
+    mnemonic_editor_page_create(lv_screen_active(),
+                                return_from_mnemonic_editor_cb,
+                                success_from_key_confirmation_cb, mnemonic, true);
+    mnemonic_editor_page_show();
     free(mnemonic);
   } else {
     new_mnemonic_menu_page_show();
   }
+}
+
+static void return_from_mnemonic_editor_cb(void) {
+  mnemonic_editor_page_destroy();
+  new_mnemonic_menu_page_show();
 }
 
 static void return_from_key_confirmation_cb(void) {

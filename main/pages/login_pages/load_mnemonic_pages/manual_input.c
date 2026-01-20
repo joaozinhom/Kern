@@ -8,12 +8,11 @@
 #include "../../../ui_components/ui_keyboard.h"
 #include "../../../ui_components/ui_menu.h"
 #include "../../../ui_components/ui_word_count_selector.h"
-#include "../key_confirmation.h"
+#include "../../../utils/bip39_filter.h"
+#include "../mnemonic_editor.h"
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>
-#include <wally_bip39.h>
-#include <wally_core.h>
 
 typedef enum {
   MODE_WORD_COUNT_SELECT,
@@ -21,9 +20,6 @@ typedef enum {
   MODE_WORD_SELECT
 } input_mode_t;
 
-#define MAX_PREFIX_LEN 8
-#define MAX_FILTERED_WORDS 8
-#define BIP39_WORDLIST_SIZE 2048
 #define MAX_MNEMONIC_LEN 256
 
 static lv_obj_t *manual_input_screen = NULL;
@@ -36,13 +32,12 @@ static void (*success_callback)(void) = NULL;
 static int total_words = 0;
 static int current_word_index = 0;
 static char entered_words[24][16];
-static char current_prefix[MAX_PREFIX_LEN + 1];
+static char current_prefix[BIP39_MAX_PREFIX_LEN + 1];
 static int prefix_len = 0;
 
-static const char *filtered_words[MAX_FILTERED_WORDS];
+static const char *filtered_words[BIP39_MAX_FILTERED_WORDS];
 static int filtered_count = 0;
 static input_mode_t current_mode = MODE_WORD_COUNT_SELECT;
-static struct words *wordlist = NULL;
 static char pending_word[16] = {0};
 
 static void word_confirmation_cb(bool confirmed, void *user_data);
@@ -50,7 +45,6 @@ static void create_word_count_menu(void);
 static void create_keyboard_input(void);
 static void create_word_select_menu(void);
 static void update_keyboard_state(void);
-static uint32_t get_valid_letters_mask(void);
 static void filter_words_by_prefix(void);
 static void on_word_count_selected(int word_count);
 static void keyboard_callback(char key);
@@ -60,59 +54,9 @@ static void back_cb(void);
 static void finish_mnemonic(void);
 static void cleanup_ui(void);
 
-static bool init_wordlist(void) {
-  if (wordlist)
-    return true;
-  return bip39_get_wordlist(NULL, &wordlist) == WALLY_OK;
-}
-
-static uint32_t get_valid_letters_mask(void) {
-  uint32_t mask = 0;
-  if (!wordlist)
-    return 0xFFFFFFFF;
-
-  for (int letter = 0; letter < 26; letter++) {
-    char test_prefix[MAX_PREFIX_LEN + 2];
-    snprintf(test_prefix, sizeof(test_prefix), "%s%c", current_prefix,
-             'a' + letter);
-    size_t test_len = prefix_len + 1;
-
-    for (size_t i = 0; i < BIP39_WORDLIST_SIZE; i++) {
-      const char *word = bip39_get_word_by_index(wordlist, i);
-      if (word && strncmp(word, test_prefix, test_len) == 0) {
-        mask |= (1u << letter);
-        break;
-      }
-    }
-  }
-  return mask;
-}
-
 static void filter_words_by_prefix(void) {
-  filtered_count = 0;
-  if (!wordlist || prefix_len == 0)
-    return;
-
-  for (size_t i = 0;
-       i < BIP39_WORDLIST_SIZE && filtered_count < MAX_FILTERED_WORDS; i++) {
-    const char *word = bip39_get_word_by_index(wordlist, i);
-    if (word && strncmp(word, current_prefix, prefix_len) == 0) {
-      filtered_words[filtered_count++] = word;
-    }
-  }
-}
-
-static int count_matching_words(void) {
-  int count = 0;
-  if (!wordlist || prefix_len == 0)
-    return BIP39_WORDLIST_SIZE;
-
-  for (size_t i = 0; i < BIP39_WORDLIST_SIZE; i++) {
-    const char *word = bip39_get_word_by_index(wordlist, i);
-    if (word && strncmp(word, current_prefix, prefix_len) == 0)
-      count++;
-  }
-  return count;
+  filtered_count = bip39_filter_by_prefix(current_prefix, prefix_len,
+                                          filtered_words, BIP39_MAX_FILTERED_WORDS);
 }
 
 static void cleanup_ui(void) {
@@ -189,13 +133,13 @@ static void update_keyboard_state(void) {
            total_words);
   ui_keyboard_set_title(keyboard, title);
   ui_keyboard_set_input_text(keyboard, current_prefix);
-  ui_keyboard_set_letters_enabled(keyboard, get_valid_letters_mask());
+  ui_keyboard_set_letters_enabled(keyboard, bip39_filter_get_valid_letters(current_prefix, prefix_len));
   ui_keyboard_set_key_enabled(keyboard, UI_KB_KEY_BACKSPACE,
                               prefix_len > 0 || current_word_index > 0);
 
-  int match_count = count_matching_words();
+  int match_count = bip39_filter_count_matches(current_prefix, prefix_len);
   ui_keyboard_set_ok_enabled(keyboard, prefix_len > 0 && match_count > 0 &&
-                                           match_count <= MAX_FILTERED_WORDS);
+                                           match_count <= BIP39_MAX_FILTERED_WORDS);
 }
 
 static void back_confirm_cb(bool confirmed, void *user_data) {
@@ -263,7 +207,7 @@ static void on_word_count_selected(int word_count) {
 
 static void keyboard_callback(char key) {
   if (key >= 'a' && key <= 'z') {
-    if (prefix_len < MAX_PREFIX_LEN) {
+    if (prefix_len < BIP39_MAX_PREFIX_LEN) {
       current_prefix[prefix_len++] = key;
       current_prefix[prefix_len] = '\0';
 
@@ -282,8 +226,8 @@ static void keyboard_callback(char key) {
     } else if (current_word_index > 0) {
       current_word_index--;
       strncpy(current_prefix, entered_words[current_word_index],
-              MAX_PREFIX_LEN);
-      current_prefix[MAX_PREFIX_LEN] = '\0';
+              BIP39_MAX_PREFIX_LEN);
+      current_prefix[BIP39_MAX_PREFIX_LEN] = '\0';
       prefix_len = strlen(current_prefix);
       entered_words[current_word_index][0] = '\0';
       update_keyboard_state();
@@ -326,8 +270,8 @@ static void back_cb(void) {
     } else if (current_word_index > 0) {
       current_word_index--;
       strncpy(current_prefix, entered_words[current_word_index],
-              MAX_PREFIX_LEN);
-      current_prefix[MAX_PREFIX_LEN] = '\0';
+              BIP39_MAX_PREFIX_LEN);
+      current_prefix[BIP39_MAX_PREFIX_LEN] = '\0';
       prefix_len = strlen(current_prefix);
       entered_words[current_word_index][0] = '\0';
       update_keyboard_state();
@@ -353,20 +297,10 @@ static void finish_mnemonic(void) {
             sizeof(mnemonic) - strlen(mnemonic) - 1);
   }
 
-  if (bip39_mnemonic_validate(NULL, mnemonic) != WALLY_OK) {
-    show_flash_error("Invalid checksum", NULL, 0);
-    current_word_index = 0;
-    prefix_len = 0;
-    current_prefix[0] = '\0';
-    memset(entered_words, 0, sizeof(entered_words));
-    create_keyboard_input();
-    return;
-  }
-
   manual_input_page_hide();
-  key_confirmation_page_create(lv_screen_active(), return_callback,
-                               success_callback, mnemonic, strlen(mnemonic));
-  key_confirmation_page_show();
+  mnemonic_editor_page_create(lv_screen_active(), return_callback,
+                              success_callback, mnemonic, false);
+  mnemonic_editor_page_show();
 }
 
 void manual_input_page_create(lv_obj_t *parent, void (*return_cb)(void),
@@ -377,7 +311,7 @@ void manual_input_page_create(lv_obj_t *parent, void (*return_cb)(void),
   return_callback = return_cb;
   success_callback = success_cb;
 
-  if (!init_wordlist()) {
+  if (!bip39_filter_init()) {
     show_flash_error("Failed to load wordlist", return_cb, 0);
     return;
   }
