@@ -24,6 +24,8 @@ bool wallet_get_receive_address(uint32_t index, char **address_out);
 bool wallet_get_change_address(uint32_t index, char **address_out);
 bool wallet_get_scriptpubkey(bool is_change, uint32_t index,
                              unsigned char *script_out, size_t *script_len_out);
+uint32_t wallet_get_account(void);
+bool wallet_set_account(uint32_t account);
 void wallet_cleanup(void);
 
 #endif // WALLET_H

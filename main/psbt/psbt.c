@@ -166,9 +166,10 @@ bool psbt_get_output_derivation(const struct wally_psbt *psbt,
     memcpy(&index_val, keypath + 20, sizeof(uint32_t));
 
     uint32_t expected_coin = is_testnet ? (0x80000000 | 1) : (0x80000000 | 0);
+    uint32_t expected_account = 0x80000000 | wallet_get_account();
 
     if (purpose == (0x80000000 | 84) && coin_type == expected_coin &&
-        account == 0x80000000 && !(change_val & 0x80000000) &&
+        account == expected_account && !(change_val & 0x80000000) &&
         !(index_val & 0x80000000)) {
       *is_change = (change_val == 1);
       *address_index = index_val;
@@ -233,7 +234,8 @@ size_t psbt_sign(struct wally_psbt *psbt, bool is_testnet) {
       memcpy(&change_val, keypath + 16, sizeof(uint32_t));
       memcpy(&index_val, keypath + 20, sizeof(uint32_t));
 
-      if (purpose != (0x80000000 | 84) || account != 0x80000000) {
+      uint32_t expected_account = 0x80000000 | wallet_get_account();
+      if (purpose != (0x80000000 | 84) || account != expected_account) {
         continue;
       }
 
@@ -247,8 +249,8 @@ size_t psbt_sign(struct wally_psbt *psbt, bool is_testnet) {
       }
 
       char path_str[64];
-      snprintf(path_str, sizeof(path_str), "m/84'/%u'/0'/%u/%u", coin_value,
-               change_val, index_val);
+      snprintf(path_str, sizeof(path_str), "m/84'/%u'/%u'/%u/%u", coin_value,
+               wallet_get_account(), change_val, index_val);
 
       struct ext_key *derived_key = NULL;
       if (!key_get_derived_key(path_str, &derived_key)) {

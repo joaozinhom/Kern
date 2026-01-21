@@ -5,12 +5,14 @@
 #include "../../key/key.h"
 #include "../../ui_components/flash_error.h"
 #include "../../ui_components/icons/icons_24.h"
+#include "../../ui_components/prompt_dialog.h"
 #include "../../ui_components/theme.h"
 #include "../../ui_components/ui_input_helpers.h"
 #include "../../ui_components/ui_key_info.h"
 #include "../../wallet/wallet.h"
 #include "../login_pages/passphrase.h"
 #include <lvgl.h>
+#include <stdio.h>
 #include <string.h>
 #include <wally_bip32.h>
 #include <wally_bip39.h>
@@ -32,8 +34,21 @@ static char base_fingerprint_hex[9] = {0};
 static wallet_network_t selected_network = WALLET_NETWORK_MAINNET;
 static bool settings_changed = false;
 
-// Global flag that persists after page is destroyed - indicates settings were
-// applied
+static lv_obj_t *account_btn = NULL;
+static lv_obj_t *account_value_label = NULL;
+static lv_obj_t *account_overlay = NULL;
+static lv_obj_t *account_numpad = NULL;
+static lv_obj_t *account_input_label = NULL;
+static uint32_t selected_account = 0;
+static char account_input_buffer[12];
+static int account_input_len = 0;
+
+static const char *numpad_map[] = {
+    "1", "2", "3", "\n", "4", "5", "6", "\n",
+    "7", "8", "9", "\n", LV_SYMBOL_BACKSPACE, "0", LV_SYMBOL_OK, ""};
+
+static void update_apply_button_state(void);
+
 static bool g_settings_applied = false;
 
 bool wallet_settings_were_applied(void) {
@@ -51,10 +66,136 @@ static void back_btn_cb(lv_event_t *e) {
 static void update_derivation_path(void) {
   if (!derivation_label)
     return;
-  const char *path = (selected_network == WALLET_NETWORK_MAINNET)
-                         ? "m/84'/0'/0'"
-                         : "m/84'/1'/0'";
+  char path[48];
+  snprintf(path, sizeof(path), "m/84'/%u'/%u'",
+           (selected_network == WALLET_NETWORK_MAINNET) ? 0 : 1,
+           selected_account);
   lv_label_set_text(derivation_label, path);
+}
+
+static void update_account_display(void) {
+  if (!account_value_label)
+    return;
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%u", selected_account);
+  lv_label_set_text(account_value_label, buf);
+}
+
+static void update_account_input_display(void) {
+  if (!account_input_label)
+    return;
+  char display[14];
+  if (account_input_len == 0) {
+    snprintf(display, sizeof(display), "_");
+  } else {
+    snprintf(display, sizeof(display), "%s_", account_input_buffer);
+  }
+  lv_label_set_text(account_input_label, display);
+}
+
+static void update_numpad_buttons(void) {
+  if (!account_numpad)
+    return;
+
+  bool empty = (account_input_len == 0);
+  if (empty) {
+    lv_btnmatrix_set_btn_ctrl(account_numpad, 12, LV_BTNMATRIX_CTRL_DISABLED);
+    lv_btnmatrix_set_btn_ctrl(account_numpad, 14, LV_BTNMATRIX_CTRL_DISABLED);
+  } else {
+    lv_btnmatrix_clear_btn_ctrl(account_numpad, 12, LV_BTNMATRIX_CTRL_DISABLED);
+    lv_btnmatrix_clear_btn_ctrl(account_numpad, 14, LV_BTNMATRIX_CTRL_DISABLED);
+  }
+}
+
+static void close_account_overlay(void) {
+  if (account_overlay) {
+    lv_obj_del(account_overlay);
+    account_overlay = NULL;
+    account_numpad = NULL;
+    account_input_label = NULL;
+  }
+}
+
+static void numpad_event_cb(lv_event_t *e) {
+  lv_obj_t *btnm = lv_event_get_target(e);
+  uint32_t btn_id = lv_btnmatrix_get_selected_btn(btnm);
+  const char *txt = lv_btnmatrix_get_btn_text(btnm, btn_id);
+
+  if (strcmp(txt, LV_SYMBOL_OK) == 0) {
+    if (account_input_len > 0) {
+      unsigned long val = strtoul(account_input_buffer, NULL, 10);
+      if (val <= 2147483647) {
+        selected_account = (uint32_t)val;
+        settings_changed = true;
+        update_account_display();
+        update_derivation_path();
+        update_apply_button_state();
+      }
+    }
+    close_account_overlay();
+  } else if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0) {
+    if (account_input_len > 0) {
+      account_input_len--;
+      account_input_buffer[account_input_len] = '\0';
+      update_account_input_display();
+      update_numpad_buttons();
+    }
+  } else if (account_input_len < 10) {
+    account_input_buffer[account_input_len++] = txt[0];
+    account_input_buffer[account_input_len] = '\0';
+    update_account_input_display();
+    update_numpad_buttons();
+  }
+}
+
+static void show_account_overlay(void) {
+  account_input_len =
+      snprintf(account_input_buffer, sizeof(account_input_buffer), "%u",
+               selected_account);
+
+  account_overlay = lv_obj_create(lv_screen_active());
+  lv_obj_remove_style_all(account_overlay);
+  lv_obj_set_size(account_overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(account_overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(account_overlay, LV_OPA_50, 0);
+  lv_obj_add_flag(account_overlay, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t *modal = lv_obj_create(account_overlay);
+  lv_obj_set_size(modal, LV_PCT(80), LV_PCT(80));
+  lv_obj_center(modal);
+  theme_apply_frame(modal);
+  lv_obj_set_style_bg_opa(modal, LV_OPA_90, 0);
+  lv_obj_clear_flag(modal, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(modal, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(modal, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_all(modal, theme_get_default_padding(), 0);
+  lv_obj_set_style_pad_gap(modal, 15, 0);
+
+  lv_obj_t *title = lv_label_create(modal);
+  lv_label_set_text(title, "Account");
+  lv_obj_set_style_text_font(title, theme_font_medium(), 0);
+  lv_obj_set_style_text_color(title, main_color(), 0);
+
+  account_input_label = lv_label_create(modal);
+  lv_obj_set_style_text_font(account_input_label, theme_font_medium(), 0);
+  lv_obj_set_style_text_color(account_input_label, highlight_color(), 0);
+  update_account_input_display();
+
+  account_numpad = lv_btnmatrix_create(modal);
+  lv_btnmatrix_set_map(account_numpad, numpad_map);
+  lv_obj_set_size(account_numpad, LV_PCT(100), LV_PCT(70));
+  lv_obj_set_flex_grow(account_numpad, 1);
+  theme_apply_btnmatrix(account_numpad);
+  lv_obj_add_event_cb(account_numpad, numpad_event_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
+
+  update_numpad_buttons();
+}
+
+static void account_btn_cb(lv_event_t *e) {
+  (void)e;
+  show_account_overlay();
 }
 
 static void update_apply_button_state(void) {
@@ -187,15 +328,13 @@ static void passphrase_btn_cb(lv_event_t *e) {
                          passphrase_success_cb);
 }
 
-static void apply_btn_cb(lv_event_t *e) {
-  (void)e;
+static void do_apply_settings(void) {
   if (!mnemonic_content)
     return;
 
   bool is_testnet = (selected_network == WALLET_NETWORK_TESTNET);
-
-  // Clean up existing wallet before reinitializing
   wallet_cleanup();
+  wallet_set_account(selected_account);
 
   if (key_load_from_mnemonic(mnemonic_content, stored_passphrase, is_testnet)) {
     if (!wallet_init(selected_network)) {
@@ -212,12 +351,35 @@ static void apply_btn_cb(lv_event_t *e) {
   }
 }
 
+static void apply_with_warning_cb(bool result, void *user_data) {
+  (void)user_data;
+  if (result) {
+    do_apply_settings();
+  }
+}
+
+static void apply_btn_cb(lv_event_t *e) {
+  (void)e;
+  if (!mnemonic_content)
+    return;
+
+  if (selected_account > 99) {
+    show_prompt_dialog_overlay(
+        "Account numbers above 99 are not recommended.\n\n"
+        "Continue?",
+        apply_with_warning_cb, NULL);
+    return;
+  }
+  do_apply_settings();
+}
+
 void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   if (!parent || !key_is_loaded() || !wallet_is_initialized())
     return;
 
   return_callback = return_cb;
   selected_network = wallet_get_network();
+  selected_account = wallet_get_account();
   settings_changed = false;
 
   // Get current mnemonic for later use
@@ -286,11 +448,13 @@ void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   add_fingerprint_pair(title_cont, base_fingerprint_hex, true);
 
   // Derivation path row
-  lv_obj_t *deriv_cont = ui_icon_text_row_create(
-      header_cont, ICON_DERIVATION,
-      (selected_network == WALLET_NETWORK_MAINNET) ? "m/84'/0'/0'"
-                                                   : "m/84'/1'/0'",
-      secondary_color());
+  char deriv_path[48];
+  snprintf(deriv_path, sizeof(deriv_path), "m/84'/%u'/%u'",
+           (selected_network == WALLET_NETWORK_MAINNET) ? 0 : 1,
+           selected_account);
+  lv_obj_t *deriv_cont =
+      ui_icon_text_row_create(header_cont, ICON_DERIVATION, deriv_path,
+                              secondary_color());
   derivation_label = lv_obj_get_child(deriv_cont, 1);
 
   // Content container below top bar
@@ -319,6 +483,27 @@ void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   lv_obj_set_style_text_font(pp_label, theme_font_medium(), 0);
   lv_obj_set_style_text_color(pp_label, main_color(), 0);
   lv_obj_center(pp_label);
+
+  // Account label
+  lv_obj_t *acc_label = lv_label_create(content);
+  lv_label_set_text(acc_label, "Account");
+  lv_obj_set_style_text_font(acc_label, theme_font_small(), 0);
+  lv_obj_set_style_text_color(acc_label, secondary_color(), 0);
+  lv_obj_set_style_margin_top(acc_label, 20, 0);
+
+  // Account button
+  account_btn = lv_btn_create(content);
+  lv_obj_set_size(account_btn, LV_PCT(50), 50);
+  theme_apply_touch_button(account_btn, false);
+  lv_obj_add_event_cb(account_btn, account_btn_cb, LV_EVENT_CLICKED, NULL);
+
+  account_value_label = lv_label_create(account_btn);
+  char acc_buf[12];
+  snprintf(acc_buf, sizeof(acc_buf), "%u", selected_account);
+  lv_label_set_text(account_value_label, acc_buf);
+  lv_obj_set_style_text_font(account_value_label, theme_font_medium(), 0);
+  lv_obj_set_style_text_color(account_value_label, main_color(), 0);
+  lv_obj_center(account_value_label);
 
   // Network label
   lv_obj_t *net_label = lv_label_create(content);
@@ -368,6 +553,9 @@ void wallet_settings_page_hide(void) {
 }
 
 void wallet_settings_page_destroy(void) {
+  // Close account overlay if open
+  close_account_overlay();
+
   // Securely clear passphrase
   if (stored_passphrase) {
     memset(stored_passphrase, 0, strlen(stored_passphrase));
@@ -390,6 +578,8 @@ void wallet_settings_page_destroy(void) {
 
   network_dropdown = NULL;
   passphrase_btn = NULL;
+  account_btn = NULL;
+  account_value_label = NULL;
   apply_btn = NULL;
   apply_label = NULL;
   title_cont = NULL;

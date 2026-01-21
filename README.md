@@ -115,6 +115,7 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
 - Networks
   - ✅ Mainnet
   - ✅ Testnet
+- ✅ Account
 - Policy types
   - ✅ Single-sig
   - ❌ Multisig

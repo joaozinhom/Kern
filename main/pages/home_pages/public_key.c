@@ -48,8 +48,9 @@ void public_key_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
 
   const char *derivation_path = wallet_get_derivation();
   wallet_network_t network = wallet_get_network();
-  const char *derivation_compact =
-      (network == WALLET_NETWORK_MAINNET) ? "84h/0h/0h" : "84h/1h/0h";
+  char derivation_compact[20];
+  snprintf(derivation_compact, sizeof(derivation_compact), "84h/%uh/%uh",
+           (network == WALLET_NETWORK_MAINNET) ? 0 : 1, wallet_get_account());
 
   public_key_screen = lv_obj_create(parent);
   lv_obj_set_size(public_key_screen, LV_PCT(100), LV_PCT(100));

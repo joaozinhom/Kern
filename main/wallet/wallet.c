@@ -1,6 +1,7 @@
 #include "wallet.h"
 #include "../key/key.h"
 #include <esp_log.h>
+#include <stdio.h>
 #include <string.h>
 #include <wally_address.h>
 #include <wally_bip32.h>
@@ -12,9 +13,8 @@ static bool wallet_initialized = false;
 static wallet_type_t wallet_type = WALLET_TYPE_NATIVE_SEGWIT;
 static wallet_network_t wallet_network = WALLET_NETWORK_MAINNET;
 static struct ext_key *account_key = NULL;
-
-static const char *BIP84_MAINNET_PATH = "m/84'/0'/0'";
-static const char *BIP84_TESTNET_PATH = "m/84'/1'/0'";
+static uint32_t wallet_account = 0;
+static char derivation_path_buffer[48];
 
 bool wallet_init(wallet_network_t network) {
   if (wallet_initialized) {
@@ -26,11 +26,11 @@ bool wallet_init(wallet_network_t network) {
   }
 
   wallet_network = network;
-  const char *account_path = (network == WALLET_NETWORK_MAINNET)
-                                 ? BIP84_MAINNET_PATH
-                                 : BIP84_TESTNET_PATH;
+  snprintf(derivation_path_buffer, sizeof(derivation_path_buffer),
+           "m/84'/%u'/%u'", (network == WALLET_NETWORK_MAINNET) ? 0 : 1,
+           wallet_account);
 
-  if (!key_get_derived_key(account_path, &account_key)) {
+  if (!key_get_derived_key(derivation_path_buffer, &account_key)) {
     return false;
   }
 
@@ -49,9 +49,7 @@ wallet_network_t wallet_get_network(void) { return wallet_network; }
 const char *wallet_get_derivation(void) {
   if (!wallet_initialized)
     return NULL;
-  // TODO: extend for different script types, policies, accounts
-  return (wallet_network == WALLET_NETWORK_MAINNET) ? BIP84_MAINNET_PATH
-                                                    : BIP84_TESTNET_PATH;
+  return derivation_path_buffer;
 }
 
 bool wallet_get_account_xpub(char **xpub_out) {
@@ -154,10 +152,18 @@ bool wallet_get_scriptpubkey(bool is_change, uint32_t index,
   return (ret == WALLY_OK);
 }
 
+uint32_t wallet_get_account(void) { return wallet_account; }
+
+bool wallet_set_account(uint32_t account) {
+  wallet_account = account;
+  return true;
+}
+
 void wallet_cleanup(void) {
   if (account_key) {
     bip32_key_free(account_key);
     account_key = NULL;
   }
   wallet_initialized = false;
+  wallet_account = 0;
 }
