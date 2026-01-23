@@ -39,6 +39,25 @@ static void loading_timer_cb(lv_timer_t *timer) {
   }
 }
 
+static void anim_size_cb(void *var, int32_t value) {
+  lv_obj_t *obj = (lv_obj_t *)var;
+  lv_obj_set_size(obj, value, value);
+}
+
+static void start_reveal_anim(lv_obj_t *obj, int32_t target_size,
+                              uint32_t duration, uint32_t delay) {
+  lv_obj_set_size(obj, 0, 0);
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_var(&anim, obj);
+  lv_anim_set_exec_cb(&anim, anim_size_cb);
+  lv_anim_set_values(&anim, 0, target_size);
+  lv_anim_set_duration(&anim, duration);
+  lv_anim_set_delay(&anim, delay);
+  lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+  lv_anim_start(&anim);
+}
+
 static void create_ui(const char *fingerprint_hex) {
   key_confirmation_screen = lv_obj_create(lv_screen_active());
   lv_obj_set_size(key_confirmation_screen, LV_PCT(100), LV_PCT(100));
@@ -49,18 +68,24 @@ static void create_ui(const char *fingerprint_hex) {
   lv_obj_set_style_pad_row(center, 20, 0);
   lv_obj_align(center, LV_ALIGN_CENTER, 0, 0);
 
-  lv_obj_t *loading_label = lv_label_create(center);
-  lv_label_set_text(loading_label, "Loading");
-  lv_obj_set_style_text_font(loading_label, theme_font_medium(), 0);
-  lv_obj_set_style_text_color(loading_label, main_color(), 0);
-
-  lv_obj_t *fp_row = theme_create_flex_row(center);
+    lv_obj_t *fp_row = theme_create_flex_row(center);
   lv_obj_set_style_pad_column(fp_row, 8, 0);
 
-  lv_obj_t *icon = lv_label_create(fp_row);
+  // Circular clip container for reveal animation
+  lv_obj_t *icon_clip = lv_obj_create(fp_row);
+  lv_obj_remove_style_all(icon_clip);
+  lv_obj_set_style_radius(icon_clip, LV_RADIUS_CIRCLE, 0);
+  lv_obj_add_flag(icon_clip, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_clip_corner(icon_clip, true, 0);
+
+  lv_obj_t *icon = lv_label_create(icon_clip);
   lv_label_set_text(icon, ICON_FINGERPRINT_36);
   lv_obj_set_style_text_font(icon, &icons_36, 0);
   lv_obj_set_style_text_color(icon, highlight_color(), 0);
+  lv_obj_center(icon);
+
+  // Start circular reveal animation
+  start_reveal_anim(icon_clip, 36, 700, 150);
 
   lv_obj_t *fp_text = lv_label_create(fp_row);
   lv_label_set_text(fp_text, fingerprint_hex);
