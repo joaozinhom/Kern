@@ -8,6 +8,7 @@
 #include "../../key/key.h"
 #include "../../psbt/psbt.h"
 #include "../../ui_components/flash_error.h"
+#include "../../ui_components/icons/icons_24.h"
 #include "../../ui_components/info_dialog.h"
 #include "../../ui_components/qr_viewer.h"
 #include "../../ui_components/sankey_diagram.h"
@@ -66,6 +67,89 @@ static void sign_button_cb(lv_event_t *e);
 static void return_from_qr_viewer_cb(void);
 static bool check_psbt_mismatch(void);
 static void mismatch_dialog_cb(void *user_data);
+
+// Format satoshis as Bitcoin with visual grouping: "1.00 000 000"
+static void format_btc(char *buf, size_t buf_size, uint64_t sats) {
+  uint64_t whole = sats / 100000000ULL;
+  uint64_t frac = sats % 100000000ULL;
+  // Split fraction: first 2 digits, then two groups of 3
+  uint32_t frac_first = (uint32_t)(frac / 1000000ULL);
+  uint32_t frac_second = (uint32_t)((frac / 1000ULL) % 1000ULL);
+  uint32_t frac_third = (uint32_t)(frac % 1000ULL);
+  snprintf(buf, buf_size, "%llu.%02u %03u %03u", whole, frac_first, frac_second,
+           frac_third);
+}
+
+// Create address label with first and last 6 chars highlighted in given color
+static lv_obj_t *create_address_label(lv_obj_t *parent, const char *address,
+                                      lv_color_t highlight) {
+  size_t len = strlen(address);
+  // Allocate buffer for recolor codes: #RRGGBB + first6 + # + middle + #RRGGBB +
+  // last6 + # + null
+  char *formatted = malloc(len + 32);
+  if (!formatted) {
+    return theme_create_label(parent, address, false);
+  }
+
+  // Convert lv_color_t to hex string for recolor
+  lv_color32_t c32 = lv_color_to_32(highlight, LV_OPA_COVER);
+  uint32_t color_hex = (c32.red << 16) | (c32.green << 8) | c32.blue;
+
+  if (len > 12) {
+    // Format: #RRGGBB first6# middle #RRGGBB last6#
+    char first[7], last[7];
+    strncpy(first, address, 6);
+    first[6] = '\0';
+    strncpy(last, address + len - 6, 6);
+    last[6] = '\0';
+
+    snprintf(formatted, len + 32, "#%06X %s#%.*s#%06X %s#", (unsigned)color_hex,
+             first, (int)(len - 12), address + 6, (unsigned)color_hex, last);
+  } else {
+    // Address too short, just highlight it all
+    snprintf(formatted, len + 32, "#%06X %s#", (unsigned)color_hex, address);
+  }
+
+  lv_obj_t *label = lv_label_create(parent);
+  lv_label_set_recolor(label, true);
+  lv_label_set_text(label, formatted);
+  lv_obj_set_style_text_font(label, theme_font_small(), 0);
+  lv_obj_set_style_text_color(label, lv_color_hex(0xAAAAAA), 0);
+  free(formatted);
+
+  return label;
+}
+
+// Create a row with: [prefix text] [BTC icon] [formatted value]
+static lv_obj_t *create_btc_value_row(lv_obj_t *parent, const char *prefix,
+                                      uint64_t sats, lv_color_t color) {
+  lv_obj_t *row = theme_create_flex_row(parent);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_column(row, 4, 0);
+
+  // Prefix label (e.g., "Fee:" or "Receive #0:")
+  lv_obj_t *prefix_label = lv_label_create(row);
+  lv_label_set_text(prefix_label, prefix);
+  lv_obj_set_style_text_font(prefix_label, theme_font_small(), 0);
+  lv_obj_set_style_text_color(prefix_label, color, 0);
+
+  // Bitcoin icon
+  lv_obj_t *icon_label = lv_label_create(row);
+  lv_label_set_text(icon_label, ICON_BITCOIN);
+  lv_obj_set_style_text_font(icon_label, &icons_24, 0);
+  lv_obj_set_style_text_color(icon_label, color, 0);
+
+  // Formatted value
+  char btc_str[32];
+  format_btc(btc_str, sizeof(btc_str), sats);
+  lv_obj_t *value_label = lv_label_create(row);
+  lv_label_set_text(value_label, btc_str);
+  lv_obj_set_style_text_font(value_label, theme_font_small(), 0);
+  lv_obj_set_style_text_color(value_label, color, 0);
+
+  return row;
+}
 
 // Classify output as self-transfer, change, or spend
 static output_type_t classify_output(size_t output_index,
@@ -384,12 +468,6 @@ static bool create_psbt_info_display(void) {
     sankey_diagram_set_outputs(tx_diagram, output_amounts, diagram_output_count,
                                output_colors);
     sankey_diagram_render(tx_diagram);
-
-    lv_obj_t *canvas_obj = sankey_diagram_get_obj(tx_diagram);
-    lv_obj_t *title = theme_create_label(canvas_obj, "PSBT Transaction", false);
-    theme_apply_label(title, true);
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
   }
 
   // Add overflow indicators below diagram if flows were omitted
@@ -433,14 +511,12 @@ static bool create_psbt_info_display(void) {
   free(output_colors);
 
   // Inputs section (white to match diagram input lines)
-  char inputs_text[128];
-  snprintf(inputs_text, sizeof(inputs_text), "Inputs(%zu): %llu sats",
-           num_inputs, total_input_value);
-  lv_obj_t *inputs_label =
-      theme_create_label(psbt_info_container, inputs_text, false);
-  theme_apply_label(inputs_label, true);
-  lv_obj_set_style_text_color(inputs_label, main_color(), 0);
-  lv_obj_set_width(inputs_label, LV_PCT(100));
+  char prefix_text[64];
+  snprintf(prefix_text, sizeof(prefix_text), "Inputs(%zu): ", num_inputs);
+  lv_obj_t *inputs_row =
+      create_btc_value_row(psbt_info_container, prefix_text, total_input_value,
+                           main_color());
+  lv_obj_set_width(inputs_row, LV_PCT(100));
 
   lv_obj_t *separator1 = lv_obj_create(psbt_info_container);
   lv_obj_set_size(separator1, LV_PCT(100), 2);
@@ -453,27 +529,26 @@ static bool create_psbt_info_display(void) {
     if (classified_outputs[i].type == OUTPUT_TYPE_SELF_TRANSFER) {
       if (!has_self_transfers) {
         lv_obj_t *title =
-            theme_create_label(psbt_info_container, "Self-Transfer:", false);
+            theme_create_label(psbt_info_container, "Self-Transfer: ", false);
         theme_apply_label(title, true);
         lv_obj_set_style_text_color(title, cyan_color(), 0);
         lv_obj_set_width(title, LV_PCT(100));
         has_self_transfers = true;
       }
 
-      char text[128];
-      snprintf(text, sizeof(text), "Receive #%u: %llu sats",
-               classified_outputs[i].address_index,
-               classified_outputs[i].value);
-      lv_obj_t *label = theme_create_label(psbt_info_container, text, false);
-      lv_obj_set_width(label, LV_PCT(100));
-      lv_obj_set_style_pad_left(label, 20, 0);
+      char text[64];
+      snprintf(text, sizeof(text), "Receive #%u: ",
+               classified_outputs[i].address_index);
+      lv_obj_t *row = create_btc_value_row(
+          psbt_info_container, text, classified_outputs[i].value, main_color());
+      lv_obj_set_width(row, LV_PCT(100));
+      lv_obj_set_style_pad_left(row, 20, 0);
 
       if (classified_outputs[i].address) {
-        lv_obj_t *addr = theme_create_label(
-            psbt_info_container, classified_outputs[i].address, false);
+        lv_obj_t *addr = create_address_label(
+            psbt_info_container, classified_outputs[i].address, cyan_color());
         lv_obj_set_width(addr, LV_PCT(100));
         lv_label_set_long_mode(addr, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_color(addr, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_style_pad_left(addr, 20, 0);
       }
     }
@@ -485,7 +560,7 @@ static bool create_psbt_info_display(void) {
     if (classified_outputs[i].type == OUTPUT_TYPE_CHANGE) {
       if (!has_change) {
         lv_obj_t *title =
-            theme_create_label(psbt_info_container, "Change:", false);
+            theme_create_label(psbt_info_container, "Change: ", false);
         theme_apply_label(title, true);
         lv_obj_set_style_text_color(title, yes_color(), 0);
         lv_obj_set_style_margin_top(title, 15, 0);
@@ -493,20 +568,19 @@ static bool create_psbt_info_display(void) {
         has_change = true;
       }
 
-      char text[128];
-      snprintf(text, sizeof(text), "Change #%u: %llu sats",
-               classified_outputs[i].address_index,
-               classified_outputs[i].value);
-      lv_obj_t *label = theme_create_label(psbt_info_container, text, false);
-      lv_obj_set_width(label, LV_PCT(100));
-      lv_obj_set_style_pad_left(label, 20, 0);
+      char text[64];
+      snprintf(text, sizeof(text), "Change #%u: ",
+               classified_outputs[i].address_index);
+      lv_obj_t *row = create_btc_value_row(
+          psbt_info_container, text, classified_outputs[i].value, main_color());
+      lv_obj_set_width(row, LV_PCT(100));
+      lv_obj_set_style_pad_left(row, 20, 0);
 
       if (classified_outputs[i].address) {
-        lv_obj_t *addr = theme_create_label(
-            psbt_info_container, classified_outputs[i].address, false);
+        lv_obj_t *addr = create_address_label(
+            psbt_info_container, classified_outputs[i].address, yes_color());
         lv_obj_set_width(addr, LV_PCT(100));
         lv_label_set_long_mode(addr, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_color(addr, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_style_pad_left(addr, 20, 0);
       }
     }
@@ -518,7 +592,7 @@ static bool create_psbt_info_display(void) {
     if (classified_outputs[i].type == OUTPUT_TYPE_SPEND) {
       if (!has_spends) {
         lv_obj_t *title =
-            theme_create_label(psbt_info_container, "Spending:", false);
+            theme_create_label(psbt_info_container, "Spending: ", false);
         theme_apply_label(title, true);
         lv_obj_set_style_text_color(title, highlight_color(), 0);
         lv_obj_set_style_margin_top(title, 15, 0);
@@ -526,19 +600,18 @@ static bool create_psbt_info_display(void) {
         has_spends = true;
       }
 
-      char text[128];
-      snprintf(text, sizeof(text), "Output %zu: %llu sats",
-               classified_outputs[i].index, classified_outputs[i].value);
-      lv_obj_t *label = theme_create_label(psbt_info_container, text, false);
-      lv_obj_set_width(label, LV_PCT(100));
-      lv_obj_set_style_pad_left(label, 20, 0);
+      char text[64];
+      snprintf(text, sizeof(text), "Output %zu: ", classified_outputs[i].index);
+      lv_obj_t *row = create_btc_value_row(
+          psbt_info_container, text, classified_outputs[i].value, main_color());
+      lv_obj_set_width(row, LV_PCT(100));
+      lv_obj_set_style_pad_left(row, 20, 0);
 
       if (classified_outputs[i].address) {
-        lv_obj_t *addr = theme_create_label(
-            psbt_info_container, classified_outputs[i].address, false);
+        lv_obj_t *addr = create_address_label(
+            psbt_info_container, classified_outputs[i].address, highlight_color());
         lv_obj_set_width(addr, LV_PCT(100));
         lv_label_set_long_mode(addr, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_color(addr, lv_color_hex(0xAAAAAA), 0);
         lv_obj_set_style_pad_left(addr, 20, 0);
       }
     }
@@ -568,12 +641,9 @@ static bool create_psbt_info_display(void) {
     lv_obj_set_style_bg_opa(separator2, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(separator2, 0, 0);
 
-    char fee_text[128];
-    snprintf(fee_text, sizeof(fee_text), "Fee: %llu sats", fee);
-    lv_obj_t *fee_label =
-        theme_create_label(psbt_info_container, fee_text, false);
-    lv_obj_set_width(fee_label, LV_PCT(100));
-    lv_obj_set_style_text_color(fee_label, error_color(), 0);
+    lv_obj_t *fee_row =
+        create_btc_value_row(psbt_info_container, "Fee: ", fee, error_color());
+    lv_obj_set_width(fee_row, LV_PCT(100));
   }
 
   lv_obj_t *button_container = lv_obj_create(psbt_info_container);

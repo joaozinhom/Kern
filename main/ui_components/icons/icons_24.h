@@ -18,5 +18,6 @@ LV_FONT_DECLARE(icons_24);
 // Icon symbol definitions (UTF-8 encoded)
 #define ICON_DERIVATION "\xEF\x84\xA6"  // FontAwesome U+F126 = code-branch
 #define ICON_FINGERPRINT "\xEF\x95\xB7" // FontAwesome U+F577 = fingerprint
+#define ICON_BITCOIN "\xEE\x82\xB4" // FontAwesome U+E0B4 = Bitcoin
 
 #endif // ICONS_24_H

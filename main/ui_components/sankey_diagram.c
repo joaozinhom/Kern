@@ -69,14 +69,15 @@ static inline void set_pixel_blended(sankey_diagram_t *diagram, int32_t x,
   } else if (alpha > 0) {
     uint16_t bg = row[x];
     uint8_t inv = 255 - alpha;
-    row[x] = ((((fg >> 11) * alpha + (bg >> 11) * inv) / 255) << 11) |
-             (((((fg >> 5) & 0x3F) * alpha + ((bg >> 5) & 0x3F) * inv) / 255) << 5) |
-             (((fg & 0x1F) * alpha + (bg & 0x1F) * inv) / 255);
+    row[x] =
+        ((((fg >> 11) * alpha + (bg >> 11) * inv) / 255) << 11) |
+        (((((fg >> 5) & 0x3F) * alpha + ((bg >> 5) & 0x3F) * inv) / 255) << 5) |
+        (((fg & 0x1F) * alpha + (bg & 0x1F) * inv) / 255);
   }
 }
 
-static void draw_aa_column(sankey_diagram_t *diagram, int32_t x,
-                           float y_top_f, float y_bot_f, uint16_t color16) {
+static void draw_aa_column(sankey_diagram_t *diagram, int32_t x, float y_top_f,
+                           float y_bot_f, uint16_t color16) {
   int32_t y_top = (int32_t)y_top_f;
   int32_t y_bot = (int32_t)y_bot_f;
 
@@ -93,18 +94,26 @@ static void draw_gradient_rect(sankey_diagram_t *diagram, int32_t x_start,
                                int32_t x_end, float y_top_f, float y_bot_f,
                                lv_color_t left_color, lv_color_t right_color) {
   if (x_start > x_end) {
-    int32_t tmp = x_start; x_start = x_end; x_end = tmp;
-    lv_color_t tmp_c = left_color; left_color = right_color; right_color = tmp_c;
+    int32_t tmp = x_start;
+    x_start = x_end;
+    x_end = tmp;
+    lv_color_t tmp_c = left_color;
+    left_color = right_color;
+    right_color = tmp_c;
   }
   if (y_top_f > y_bot_f) {
-    float tmp = y_top_f; y_top_f = y_bot_f; y_bot_f = tmp;
+    float tmp = y_top_f;
+    y_top_f = y_bot_f;
+    y_bot_f = tmp;
   }
   int32_t width = x_end - x_start;
-  if (width <= 0) return;
+  if (width <= 0)
+    return;
 
   for (int32_t x = x_start; x <= x_end; x++) {
-    draw_aa_column(diagram, x, y_top_f, y_bot_f, lv_color_to_u16(
-        color_lerp(left_color, right_color, (float)(x - x_start) / width)));
+    draw_aa_column(diagram, x, y_top_f, y_bot_f,
+                   lv_color_to_u16(color_lerp(left_color, right_color,
+                                              (float)(x - x_start) / width)));
   }
 }
 
@@ -130,7 +139,9 @@ static void draw_bezier_ribbon(sankey_diagram_t *diagram, float x0,
     float y_top_f = bezier_eval(y0_top, y0_top, y3_top, y3_top, t);
     float y_bot_f = bezier_eval(y0_bot, y0_bot, y3_bot, y3_bot, t);
     if (y_top_f > y_bot_f) {
-      float tmp = y_top_f; y_top_f = y_bot_f; y_bot_f = tmp;
+      float tmp = y_top_f;
+      y_top_f = y_bot_f;
+      y_bot_f = tmp;
     }
 
     draw_aa_column(diagram, x, y_top_f, y_bot_f,
@@ -310,13 +321,23 @@ void sankey_diagram_render(sankey_diagram_t *diagram) {
   float fade_start_x = diagram->width - fade_width;
   lv_color_t white = lv_color_hex(0xFFFFFF);
 
+  // Central "transaction" rectangle (10% of width)
+  float rect_width = diagram->width * 0.1f;
+  float rect_left = center_x - rect_width / 2.0f;
+  float rect_right = center_x + rect_width / 2.0f;
+  float stack_height = (input_stack_height > output_stack_height)
+                           ? input_stack_height
+                           : output_stack_height;
+  float rect_top = center_y - stack_height / 2.0f;
+  float rect_bot = center_y + stack_height / 2.0f;
+
   for (size_t i = 0; i < diagram->input_count; i++) {
     float half = diagram->inputs[i].thickness / 2.0f;
     draw_gradient_rect(diagram, 0, (int32_t)fade_width,
                        diagram->inputs[i].y_center - half,
                        diagram->inputs[i].y_center + half, bg, white);
     draw_bezier_ribbon(diagram, fade_width, diagram->inputs[i].y_center - half,
-                       diagram->inputs[i].y_center + half, center_x,
+                       diagram->inputs[i].y_center + half, rect_left,
                        input_center_positions[i] - half,
                        input_center_positions[i] + half,
                        diagram->inputs[i].color, diagram->inputs[i].color);
@@ -324,7 +345,7 @@ void sankey_diagram_render(sankey_diagram_t *diagram) {
 
   for (size_t i = 0; i < diagram->output_count; i++) {
     float half = diagram->outputs[i].thickness / 2.0f;
-    draw_bezier_ribbon(diagram, center_x, output_center_positions[i] - half,
+    draw_bezier_ribbon(diagram, rect_right, output_center_positions[i] - half,
                        output_center_positions[i] + half, fade_start_x,
                        diagram->outputs[i].y_center - half,
                        diagram->outputs[i].y_center + half, white,
@@ -334,6 +355,11 @@ void sankey_diagram_render(sankey_diagram_t *diagram) {
                        diagram->outputs[i].y_center + half,
                        diagram->outputs[i].color, bg);
   }
+
+  // Draw central rectangle last to cover AA artifacts at junctions
+  uint16_t white16 = lv_color_to_u16(white);
+  for (int32_t x = (int32_t)rect_left; x <= (int32_t)rect_right; x++)
+    draw_aa_column(diagram, x, rect_top, rect_bot, white16);
 
   free(input_center_positions);
   free(output_center_positions);
