@@ -1,0 +1,169 @@
+#include "wallet.h"
+#include "key.h"
+#include <esp_log.h>
+#include <stdio.h>
+#include <string.h>
+#include <wally_address.h>
+#include <wally_bip32.h>
+#include <wally_core.h>
+#include <wally_crypto.h>
+#include <wally_script.h>
+
+static bool wallet_initialized = false;
+static wallet_type_t wallet_type = WALLET_TYPE_NATIVE_SEGWIT;
+static wallet_network_t wallet_network = WALLET_NETWORK_MAINNET;
+static struct ext_key *account_key = NULL;
+static uint32_t wallet_account = 0;
+static char derivation_path_buffer[48];
+
+bool wallet_init(wallet_network_t network) {
+  if (wallet_initialized) {
+    return true;
+  }
+
+  if (!key_is_loaded()) {
+    return false;
+  }
+
+  wallet_network = network;
+  snprintf(derivation_path_buffer, sizeof(derivation_path_buffer),
+           "m/84'/%u'/%u'", (network == WALLET_NETWORK_MAINNET) ? 0 : 1,
+           wallet_account);
+
+  if (!key_get_derived_key(derivation_path_buffer, &account_key)) {
+    return false;
+  }
+
+  wallet_initialized = true;
+  wallet_type = WALLET_TYPE_NATIVE_SEGWIT;
+
+  return true;
+}
+
+bool wallet_is_initialized(void) { return wallet_initialized; }
+
+wallet_type_t wallet_get_type(void) { return wallet_type; }
+
+wallet_network_t wallet_get_network(void) { return wallet_network; }
+
+const char *wallet_get_derivation(void) {
+  if (!wallet_initialized)
+    return NULL;
+  return derivation_path_buffer;
+}
+
+bool wallet_get_account_xpub(char **xpub_out) {
+  if (!wallet_initialized || !account_key || !xpub_out) {
+    return false;
+  }
+
+  int ret = bip32_key_to_base58(account_key, BIP32_FLAG_KEY_PUBLIC, xpub_out);
+  return (ret == WALLY_OK);
+}
+
+// chain: 0 = receive, 1 = change
+static bool derive_address(uint32_t chain, uint32_t index, char **address_out) {
+  if (!wallet_initialized || !account_key || chain > 1) {
+    return false;
+  }
+
+  uint32_t chain_path[1] = {chain};
+  struct ext_key *chain_key = NULL;
+  int ret = bip32_key_from_parent_path_alloc(
+      account_key, chain_path, 1, BIP32_FLAG_KEY_PRIVATE, &chain_key);
+  if (ret != WALLY_OK) {
+    return false;
+  }
+
+  uint32_t addr_path[1] = {index};
+  struct ext_key *addr_key = NULL;
+  ret = bip32_key_from_parent_path_alloc(chain_key, addr_path, 1,
+                                         BIP32_FLAG_KEY_PUBLIC, &addr_key);
+  bip32_key_free(chain_key);
+
+  if (ret != WALLY_OK) {
+    return false;
+  }
+
+  unsigned char script[WALLY_WITNESSSCRIPT_MAX_LEN];
+  size_t script_len;
+
+  ret = wally_witness_program_from_bytes(addr_key->pub_key, EC_PUBLIC_KEY_LEN,
+                                         WALLY_SCRIPT_HASH160, script,
+                                         sizeof(script), &script_len);
+  bip32_key_free(addr_key);
+
+  if (ret != WALLY_OK) {
+    return false;
+  }
+
+  const char *hrp = (wallet_network == WALLET_NETWORK_MAINNET) ? "bc" : "tb";
+  ret = wally_addr_segwit_from_bytes(script, script_len, hrp, 0, address_out);
+  return (ret == WALLY_OK);
+}
+
+bool wallet_get_receive_address(uint32_t index, char **address_out) {
+  if (!address_out) {
+    return false;
+  }
+  return derive_address(0, index, address_out);
+}
+
+bool wallet_get_change_address(uint32_t index, char **address_out) {
+  if (!address_out) {
+    return false;
+  }
+  return derive_address(1, index, address_out);
+}
+
+// Get scriptPubKey for a wallet address
+// is_change: false = receive (chain 0), true = change (chain 1)
+bool wallet_get_scriptpubkey(bool is_change, uint32_t index,
+                             unsigned char *script_out,
+                             size_t *script_len_out) {
+  if (!wallet_initialized || !account_key || !script_out || !script_len_out) {
+    return false;
+  }
+
+  uint32_t chain = is_change ? 1 : 0;
+  uint32_t chain_path[1] = {chain};
+  struct ext_key *chain_key = NULL;
+  int ret = bip32_key_from_parent_path_alloc(
+      account_key, chain_path, 1, BIP32_FLAG_KEY_PRIVATE, &chain_key);
+  if (ret != WALLY_OK) {
+    return false;
+  }
+
+  uint32_t addr_path[1] = {index};
+  struct ext_key *addr_key = NULL;
+  ret = bip32_key_from_parent_path_alloc(chain_key, addr_path, 1,
+                                         BIP32_FLAG_KEY_PUBLIC, &addr_key);
+  bip32_key_free(chain_key);
+
+  if (ret != WALLY_OK) {
+    return false;
+  }
+
+  ret = wally_witness_program_from_bytes(
+      addr_key->pub_key, EC_PUBLIC_KEY_LEN, WALLY_SCRIPT_HASH160, script_out,
+      WALLY_WITNESSSCRIPT_MAX_LEN, script_len_out);
+  bip32_key_free(addr_key);
+
+  return (ret == WALLY_OK);
+}
+
+uint32_t wallet_get_account(void) { return wallet_account; }
+
+bool wallet_set_account(uint32_t account) {
+  wallet_account = account;
+  return true;
+}
+
+void wallet_cleanup(void) {
+  if (account_key) {
+    bip32_key_free(account_key);
+    account_key = NULL;
+  }
+  wallet_initialized = false;
+  wallet_account = 0;
+}

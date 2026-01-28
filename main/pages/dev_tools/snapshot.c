@@ -1,33 +1,51 @@
-// Capture Entropy Page - Reusable camera page for capturing entropy
-
-#include "capture_entropy.h"
+#include "snapshot.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <lvgl.h>
-#include <math.h>
+#include <sd_card.h>
+#include <stdio.h>
 #include <string.h>
-#include <wally_crypto.h>
 
-#include "../components/video/video.h"
-#include "../ui/dialog.h"
-#include "../ui/theme.h"
-#include "../utils/memory_utils.h"
+#include "../../../../components/video/video.h"
+#include "../../ui/dialog.h"
+#include "../../ui/input_helpers.h"
+#include "../../ui/theme.h"
+#include "../../utils/memory_utils.h"
 
-static const char *TAG = "capture_entropy";
+static const char *TAG = "snapshot";
 
 #define CAMERA_WIDTH 640
 #define CAMERA_HEIGHT 640
-#define ENTROPY_THRESHOLD 6.0 // Minimum acceptable entropy (bits)
+#define GRAY_WIDTH 320
+#define GRAY_HEIGHT 320
 
 typedef enum {
   CAMERA_EVENT_TASK_RUN = BIT(0),
   CAMERA_EVENT_DELETE = BIT(1),
 } camera_event_id_t;
 
-static lv_obj_t *capture_screen = NULL;
+static const uint8_t r5_to_gray[32] = {
+    0,  2,  4,  7,  9,  12, 14, 17, 19, 22, 24, 27, 29, 31, 34, 36,
+    39, 41, 44, 46, 49, 51, 53, 56, 58, 61, 63, 66, 68, 71, 73, 76};
+
+static const uint8_t g6_to_gray[64] = {
+    0,   2,   4,   7,   9,   11,  14,  16,  18,  21,  23,  25,  28,
+    30,  32,  35,  37,  39,  42,  44,  46,  49,  51,  53,  56,  58,
+    60,  63,  65,  67,  70,  72,  74,  77,  79,  81,  84,  86,  88,
+    91,  93,  95,  98,  100, 102, 105, 107, 109, 112, 114, 116, 119,
+    121, 123, 126, 128, 130, 133, 135, 137, 140, 142, 144, 147};
+
+static const uint8_t b5_to_gray[32] = {
+    0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29};
+
+static lv_obj_t *snapshot_screen = NULL;
 static lv_obj_t *camera_img = NULL;
+static lv_obj_t *capture_btn = NULL;
+static lv_obj_t *back_btn = NULL;
 static void (*return_callback)(void) = NULL;
 
 static int camera_handle = -1;
@@ -38,31 +56,17 @@ static EventGroupHandle_t camera_event_group = NULL;
 static uint8_t *display_buffer_a = NULL;
 static uint8_t *display_buffer_b = NULL;
 static uint8_t *current_display_buffer = NULL;
+static uint8_t *grayscale_buffer = NULL;
 
 static volatile bool closing = false;
 static volatile bool is_initialized = false;
 static volatile int active_frame_ops = 0;
 
-static uint8_t captured_entropy[32];
-static volatile bool entropy_captured = false;
-static volatile bool dialog_showing = false;
-
-static void touch_event_cb(lv_event_t *e);
+static void back_btn_cb(lv_event_t *e);
+static void capture_btn_cb(lv_event_t *e);
 static void camera_frame_cb(uint8_t *camera_buf, uint8_t camera_buf_index,
                             uint32_t camera_buf_hes, uint32_t camera_buf_ves,
                             size_t camera_buf_len);
-
-static void low_entropy_prompt_cb(bool retry, void *user_data) {
-  (void)user_data;
-  dialog_showing = false;
-  if (!retry) {
-    // User chose "No" - exit the capture page
-    closing = true;
-    if (return_callback)
-      return_callback();
-  }
-  // If retry (Yes), do nothing - user stays on camera page
-}
 
 static uint8_t *allocate_buffer(size_t size) {
   uint8_t *buf = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -71,46 +75,17 @@ static uint8_t *allocate_buffer(size_t size) {
   return buf;
 }
 
-static double calculate_shannon_entropy(const uint8_t *rgb565_data,
-                                        size_t pixel_count) {
-  // Allocate histogram for all 65536 possible RGB565 values
-  uint32_t *histogram = heap_caps_calloc(65536, sizeof(uint32_t),
-                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!histogram) {
-    histogram = heap_caps_calloc(65536, sizeof(uint32_t),
-                                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!histogram)
-      return 0.0;
-  }
-
-  // Count pixel values
-  const uint16_t *pixels = (const uint16_t *)rgb565_data;
-  for (size_t i = 0; i < pixel_count; i++) {
-    histogram[pixels[i]]++;
-  }
-
-  // Calculate entropy: H = -Σ(p × log2(p))
-  double entropy = 0.0;
-  for (int i = 0; i < 65536; i++) {
-    if (histogram[i] > 0) {
-      double p = (double)histogram[i] / pixel_count;
-      entropy -= p * log2(p);
-    }
-  }
-
-  free(histogram);
-  return entropy;
-}
-
 static bool allocate_buffers(void) {
   size_t display_size = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
 
   display_buffer_a = allocate_buffer(display_size);
   display_buffer_b = allocate_buffer(display_size);
+  grayscale_buffer = allocate_buffer(GRAY_WIDTH * GRAY_HEIGHT);
 
-  if (!display_buffer_a || !display_buffer_b) {
+  if (!display_buffer_a || !display_buffer_b || !grayscale_buffer) {
     SAFE_FREE_STATIC(display_buffer_a);
     SAFE_FREE_STATIC(display_buffer_b);
+    SAFE_FREE_STATIC(grayscale_buffer);
     return false;
   }
   return true;
@@ -120,6 +95,44 @@ static void free_buffers(void) {
   current_display_buffer = NULL;
   SAFE_FREE_STATIC(display_buffer_a);
   SAFE_FREE_STATIC(display_buffer_b);
+  SAFE_FREE_STATIC(grayscale_buffer);
+}
+
+static void rgb565_to_grayscale_downsample(const uint8_t *rgb565_data,
+                                           uint8_t *gray_data) {
+  const uint16_t *pixels = (const uint16_t *)rgb565_data;
+
+  for (uint32_t dst_y = 0; dst_y < GRAY_HEIGHT; dst_y++) {
+    uint32_t src_y = dst_y * 2;
+    for (uint32_t dst_x = 0; dst_x < GRAY_WIDTH; dst_x++) {
+      uint16_t pixel = pixels[src_y * CAMERA_WIDTH + dst_x * 2];
+      uint8_t r5 = (pixel >> 11) & 0x1F;
+      uint8_t g6 = (pixel >> 5) & 0x3F;
+      uint8_t b5 = pixel & 0x1F;
+      gray_data[dst_y * GRAY_WIDTH + dst_x] =
+          r5_to_gray[r5] + g6_to_gray[g6] + b5_to_gray[b5];
+    }
+  }
+}
+
+static esp_err_t save_pgm_file(const uint8_t *gray_data, const char *path) {
+  char header[32];
+  int header_len = snprintf(header, sizeof(header), "P5\n%d %d\n255\n",
+                            GRAY_WIDTH, GRAY_HEIGHT);
+
+  size_t data_size = GRAY_WIDTH * GRAY_HEIGHT;
+  size_t total_size = header_len + data_size;
+
+  uint8_t *file_data = malloc(total_size);
+  if (!file_data)
+    return ESP_ERR_NO_MEM;
+
+  memcpy(file_data, header, header_len);
+  memcpy(file_data + header_len, gray_data, data_size);
+
+  esp_err_t ret = sd_card_write_file(path, file_data, total_size);
+  free(file_data);
+  return ret;
 }
 
 static void horizontal_crop(const uint8_t *camera_buf, uint8_t *display_buf,
@@ -157,7 +170,7 @@ static void camera_frame_cb(uint8_t *camera_buf, uint8_t camera_buf_index,
 
   horizontal_crop(camera_buf, back_buffer, camera_buf_hes, camera_buf_ves);
 
-  if (!closing && !dialog_showing && camera_img && lvgl_port_lock(0)) {
+  if (!closing && camera_img && lvgl_port_lock(0)) {
     current_display_buffer = back_buffer;
     img_dsc.data = current_display_buffer;
     lv_img_set_src(camera_img, &img_dsc);
@@ -214,62 +227,64 @@ static bool camera_init(void) {
   return true;
 }
 
-static void touch_event_cb(lv_event_t *e) {
-  if (closing || dialog_showing || !current_display_buffer)
+static void back_btn_cb(lv_event_t *e) {
+  if (closing)
+    return;
+  closing = true;
+  if (return_callback)
+    return_callback();
+}
+
+static void capture_btn_cb(lv_event_t *e) {
+  if (closing || !current_display_buffer || !grayscale_buffer)
     return;
 
-  size_t pixel_count = CAMERA_WIDTH * CAMERA_HEIGHT;
-  double entropy =
-      calculate_shannon_entropy(current_display_buffer, pixel_count);
-
-  if (entropy < ENTROPY_THRESHOLD) {
-    dialog_showing = true;
-    dialog_show_confirm("Low entropy\nTry again?", low_entropy_prompt_cb, NULL,
-                        DIALOG_STYLE_OVERLAY);
-    return;
+  if (!sd_card_is_mounted()) {
+    if (sd_card_init() != ESP_OK) {
+      dialog_show_message("Error", "Failed to mount SD card");
+      return;
+    }
   }
 
-  unsigned char hash[SHA256_LEN];
-  size_t buffer_size = pixel_count * 2;
+  rgb565_to_grayscale_downsample(current_display_buffer, grayscale_buffer);
 
-  if (wally_sha256(current_display_buffer, buffer_size, hash, sizeof(hash)) ==
-      WALLY_OK) {
-    memcpy(captured_entropy, hash, 32);
-    entropy_captured = true;
-    closing = true;
-    if (return_callback)
-      return_callback();
+  char filename[64];
+  snprintf(filename, sizeof(filename), SD_CARD_MOUNT_POINT "/snap_%lld.pgm",
+           (long long)(esp_timer_get_time() / 1000));
+
+  if (save_pgm_file(grayscale_buffer, filename) == ESP_OK) {
+    char msg[80];
+    snprintf(msg, sizeof(msg), "Saved: %s", strrchr(filename, '/') + 1);
+    dialog_show_message("Snapshot", msg);
+  } else {
+    dialog_show_message("Error", "Failed to save snapshot");
   }
 }
 
-void capture_entropy_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
+void snapshot_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   (void)parent;
 
   return_callback = return_cb;
   closing = false;
   is_initialized = false;
-  dialog_showing = false;
   active_frame_ops = 0;
-  entropy_captured = false;
-  memset(captured_entropy, 0, sizeof(captured_entropy));
 
-  capture_screen = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(capture_screen, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(capture_screen, lv_color_hex(0x1e1e1e), 0);
-  lv_obj_set_style_bg_opa(capture_screen, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(capture_screen, 0, 0);
-  lv_obj_set_style_pad_all(capture_screen, 0, 0);
-  lv_obj_set_style_radius(capture_screen, 0, 0);
-  lv_obj_clear_flag(capture_screen, LV_OBJ_FLAG_SCROLLABLE);
+  snapshot_screen = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(snapshot_screen, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(snapshot_screen, lv_color_hex(0x1e1e1e), 0);
+  lv_obj_set_style_bg_opa(snapshot_screen, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(snapshot_screen, 0, 0);
+  lv_obj_set_style_pad_all(snapshot_screen, 0, 0);
+  lv_obj_set_style_radius(snapshot_screen, 0, 0);
+  lv_obj_clear_flag(snapshot_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *frame = lv_obj_create(capture_screen);
+  lv_obj_t *frame = lv_obj_create(snapshot_screen);
   lv_obj_set_size(frame, CAMERA_WIDTH, CAMERA_HEIGHT);
   lv_obj_center(frame);
   lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(frame, 0, 0);
   lv_obj_set_style_pad_all(frame, 0, 0);
   lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(frame, touch_event_cb, LV_EVENT_CLICKED, NULL);
 
   camera_img = lv_img_create(frame);
   lv_obj_set_size(camera_img, CAMERA_WIDTH, CAMERA_HEIGHT);
@@ -278,15 +293,15 @@ void capture_entropy_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   lv_obj_set_style_bg_color(camera_img, lv_color_white(), 0);
   lv_obj_set_style_bg_opa(camera_img, LV_OPA_COVER, 0);
 
-  lv_obj_t *title =
-      theme_create_label(capture_screen, "Capture Entropy", false);
+  lv_obj_t *title = theme_create_label(snapshot_screen, "Snapshot", false);
   theme_apply_label(title, true);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
-  lv_obj_t *instruction =
-      theme_create_label(capture_screen, "Tap to capture", false);
-  lv_obj_set_style_text_color(instruction, highlight_color(), 0);
-  lv_obj_align(instruction, LV_ALIGN_BOTTOM_MID, 0, -10);
+  back_btn = ui_create_back_button(snapshot_screen, back_btn_cb);
+
+  capture_btn = theme_create_button(snapshot_screen, "Capture", true);
+  lv_obj_align(capture_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_add_event_cb(capture_btn, capture_btn_cb, LV_EVENT_CLICKED, NULL);
 
   if (!camera_init()) {
     ESP_LOGE(TAG, "Failed to initialize camera");
@@ -296,17 +311,17 @@ void capture_entropy_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   is_initialized = true;
 }
 
-void capture_entropy_page_show(void) {
-  if (is_initialized && !closing && capture_screen)
-    lv_obj_clear_flag(capture_screen, LV_OBJ_FLAG_HIDDEN);
+void snapshot_page_show(void) {
+  if (is_initialized && !closing && snapshot_screen)
+    lv_obj_clear_flag(snapshot_screen, LV_OBJ_FLAG_HIDDEN);
 }
 
-void capture_entropy_page_hide(void) {
-  if (is_initialized && !closing && capture_screen)
-    lv_obj_add_flag(capture_screen, LV_OBJ_FLAG_HIDDEN);
+void snapshot_page_hide(void) {
+  if (is_initialized && !closing && snapshot_screen)
+    lv_obj_add_flag(snapshot_screen, LV_OBJ_FLAG_HIDDEN);
 }
 
-void capture_entropy_page_destroy(void) {
+void snapshot_page_destroy(void) {
   closing = true;
   is_initialized = false;
 
@@ -331,9 +346,11 @@ void capture_entropy_page_destroy(void) {
 
   bool locked = lvgl_port_lock(1000);
   camera_img = NULL;
-  if (capture_screen) {
-    lv_obj_del(capture_screen);
-    capture_screen = NULL;
+  capture_btn = NULL;
+  back_btn = NULL;
+  if (snapshot_screen) {
+    lv_obj_del(snapshot_screen);
+    snapshot_screen = NULL;
   }
   if (locked)
     lvgl_port_unlock();
@@ -352,20 +369,5 @@ void capture_entropy_page_destroy(void) {
 
   return_callback = NULL;
   closing = false;
-  dialog_showing = false;
   active_frame_ops = 0;
-}
-
-bool capture_entropy_get_hash(uint8_t *hash_out) {
-  if (!entropy_captured || !hash_out)
-    return false;
-  memcpy(hash_out, captured_entropy, 32);
-  return true;
-}
-
-bool capture_entropy_has_result(void) { return entropy_captured; }
-
-void capture_entropy_clear(void) {
-  entropy_captured = false;
-  memset(captured_entropy, 0, sizeof(captured_entropy));
 }

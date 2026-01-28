@@ -1,6 +1,6 @@
-#include "pages/login_pages/login.h"
-#include "ui_components/logo/kern_logo_lvgl.h"
-#include "ui_components/theme.h"
+#include "pages/login/login.h"
+#include "ui/assets/kern_logo_lvgl.h"
+#include "ui/theme.h"
 #include <bsp/display.h>
 #include <bsp/esp-bsp.h>
 #include <esp_check.h>
