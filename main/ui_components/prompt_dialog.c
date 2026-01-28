@@ -96,7 +96,7 @@ static void create_prompt_dialog_internal(const char *prompt_text,
   lv_label_set_long_mode(prompt_label, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(prompt_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(prompt_label, theme_font_medium(), 0);
-  lv_obj_center(prompt_label);
+  lv_obj_align(prompt_label, LV_ALIGN_TOP_MID, 0, 10);
 
   // "No" button
   lv_obj_t *no_btn = theme_create_button(dialog, "No", false);

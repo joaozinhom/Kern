@@ -84,8 +84,8 @@ static void format_btc(char *buf, size_t buf_size, uint64_t sats) {
 static lv_obj_t *create_address_label(lv_obj_t *parent, const char *address,
                                       lv_color_t highlight) {
   size_t len = strlen(address);
-  // Allocate buffer for recolor codes: #RRGGBB + first6 + # + middle + #RRGGBB +
-  // last6 + # + null
+  // Allocate buffer for recolor codes: #RRGGBB + first6 + # + middle + #RRGGBB
+  // + last6 + # + null
   char *formatted = malloc(len + 32);
   if (!formatted) {
     return theme_create_label(parent, address, false);
@@ -513,9 +513,8 @@ static bool create_psbt_info_display(void) {
   // Inputs section (white to match diagram input lines)
   char prefix_text[64];
   snprintf(prefix_text, sizeof(prefix_text), "Inputs(%zu): ", num_inputs);
-  lv_obj_t *inputs_row =
-      create_btc_value_row(psbt_info_container, prefix_text, total_input_value,
-                           main_color());
+  lv_obj_t *inputs_row = create_btc_value_row(psbt_info_container, prefix_text,
+                                              total_input_value, main_color());
   lv_obj_set_width(inputs_row, LV_PCT(100));
 
   lv_obj_t *separator1 = lv_obj_create(psbt_info_container);
@@ -537,8 +536,8 @@ static bool create_psbt_info_display(void) {
       }
 
       char text[64];
-      snprintf(text, sizeof(text), "Receive #%u: ",
-               classified_outputs[i].address_index);
+      snprintf(text, sizeof(text),
+               "Receive #%u: ", classified_outputs[i].address_index);
       lv_obj_t *row = create_btc_value_row(
           psbt_info_container, text, classified_outputs[i].value, main_color());
       lv_obj_set_width(row, LV_PCT(100));
@@ -569,8 +568,8 @@ static bool create_psbt_info_display(void) {
       }
 
       char text[64];
-      snprintf(text, sizeof(text), "Change #%u: ",
-               classified_outputs[i].address_index);
+      snprintf(text, sizeof(text),
+               "Change #%u: ", classified_outputs[i].address_index);
       lv_obj_t *row = create_btc_value_row(
           psbt_info_container, text, classified_outputs[i].value, main_color());
       lv_obj_set_width(row, LV_PCT(100));
@@ -608,8 +607,9 @@ static bool create_psbt_info_display(void) {
       lv_obj_set_style_pad_left(row, 20, 0);
 
       if (classified_outputs[i].address) {
-        lv_obj_t *addr = create_address_label(
-            psbt_info_container, classified_outputs[i].address, highlight_color());
+        lv_obj_t *addr = create_address_label(psbt_info_container,
+                                              classified_outputs[i].address,
+                                              highlight_color());
         lv_obj_set_width(addr, LV_PCT(100));
         lv_label_set_long_mode(addr, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_pad_left(addr, 20, 0);
