@@ -11,11 +11,11 @@ typedef void (*nav_page_hide_fn)(void);
 typedef void (*nav_page_destroy_fn)(void);
 
 typedef struct {
-    const char *id;
-    nav_page_create_fn create;
-    nav_page_show_fn show;
-    nav_page_hide_fn hide;
-    nav_page_destroy_fn destroy;
+  const char *id;
+  nav_page_create_fn create;
+  nav_page_show_fn show;
+  nav_page_hide_fn hide;
+  nav_page_destroy_fn destroy;
 } nav_page_t;
 
 void nav_init(void *root_parent);

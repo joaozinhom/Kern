@@ -4,14 +4,14 @@
 #include <stdbool.h>
 
 typedef enum {
-    DIALOG_INFO,
-    DIALOG_ERROR,
-    DIALOG_CONFIRM,
+  DIALOG_INFO,
+  DIALOG_ERROR,
+  DIALOG_CONFIRM,
 } dialog_type_t;
 
 typedef enum {
-    DIALOG_STYLE_FULLSCREEN,
-    DIALOG_STYLE_OVERLAY,
+  DIALOG_STYLE_FULLSCREEN,
+  DIALOG_STYLE_OVERLAY,
 } dialog_style_t;
 
 typedef void (*dialog_callback_t)(void *user_data);

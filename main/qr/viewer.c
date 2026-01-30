@@ -2,9 +2,9 @@
 #include "../components/bbqr/src/bbqr.h"
 #include "../components/cUR/src/types/psbt.h"
 #include "../components/cUR/src/ur_encoder.h"
-#include "../managed_components/lvgl__lvgl/src/libs/qrcode/qrcodegen.h"
-#include "parser.h"
 #include "../ui/theme.h"
+#include "encoder.h"
+#include "parser.h"
 #include <lvgl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,69 +53,6 @@ static void hide_message_timer_cb(lv_timer_t *timer) {
     lv_obj_del(msgbox);
   }
   message_timer = NULL;
-}
-
-static lv_result_t qr_update_alphanumeric(lv_obj_t *obj, const char *text) {
-  if (!obj || !text || strlen(text) == 0 ||
-      strlen(text) > qrcodegen_BUFFER_LEN_MAX) {
-    return LV_RESULT_INVALID;
-  }
-
-  lv_draw_buf_t *draw_buf = lv_canvas_get_draw_buf(obj);
-  if (!draw_buf) {
-    return LV_RESULT_INVALID;
-  }
-
-  int32_t canvas_size = draw_buf->header.w;
-  uint8_t *qr_code = malloc(qrcodegen_BUFFER_LEN_MAX);
-  uint8_t *temp_buf = malloc(qrcodegen_BUFFER_LEN_MAX);
-  if (!qr_code || !temp_buf) {
-    free(qr_code);
-    free(temp_buf);
-    return LV_RESULT_INVALID;
-  }
-
-  bool ok = qrcodegen_encodeText(text, temp_buf, qr_code, qrcodegen_Ecc_MEDIUM,
-                                 qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
-                                 qrcodegen_Mask_AUTO, true);
-  free(temp_buf);
-  if (!ok) {
-    free(qr_code);
-    return LV_RESULT_INVALID;
-  }
-
-  int32_t qr_size = qrcodegen_getSize(qr_code);
-  int32_t scale = canvas_size / qr_size;
-  int32_t margin = (canvas_size - (qr_size * scale)) / 2;
-
-  lv_draw_buf_clear(draw_buf, NULL);
-  lv_canvas_set_palette(obj, 0, lv_color_to_32(lv_color_white(), LV_OPA_COVER));
-  lv_canvas_set_palette(obj, 1, lv_color_to_32(lv_color_black(), LV_OPA_COVER));
-
-  uint8_t *buf = (uint8_t *)draw_buf->data + 8; // Skip palette
-  uint32_t stride = draw_buf->header.stride;
-
-  for (int32_t qy = 0; qy < qr_size; qy++) {
-    int32_t py = margin + qy * scale;
-    for (int32_t qx = 0; qx < qr_size; qx++) {
-      if (qrcodegen_getModule(qr_code, qx, qy)) {
-        int32_t px = margin + qx * scale;
-        for (int32_t dx = 0; dx < scale; dx++) {
-          int32_t x = px + dx;
-          buf[py * stride + (x >> 3)] |= (0x80 >> (x & 7));
-        }
-      }
-    }
-    uint8_t *src_row = buf + py * stride;
-    for (int32_t dy = 1; dy < scale; dy++) {
-      memcpy(buf + (py + dy) * stride, src_row, stride);
-    }
-  }
-
-  free(qr_code);
-  lv_image_cache_drop(draw_buf);
-  lv_obj_invalidate(obj);
-  return LV_RESULT_OK;
 }
 
 static void create_progress_indicators(int total_parts) {
@@ -251,7 +188,7 @@ static void animation_timer_cb(lv_timer_t *timer) {
     return;
   }
   current_part_index = (current_part_index + 1) % qr_parts_count;
-  qr_update_alphanumeric(qr_code_obj, qr_parts[current_part_index].data);
+  qr_update_optimal(qr_code_obj, qr_parts[current_part_index].data, NULL);
   update_progress_indicator(current_part_index);
 }
 
@@ -276,7 +213,7 @@ static bool setup_qr_viewer_ui(lv_obj_t *parent, const char *title) {
     return false;
   }
   lv_qrcode_set_size(qr_code_obj, qr_size);
-  qr_update_alphanumeric(qr_code_obj, qr_parts[0].data);
+  qr_update_optimal(qr_code_obj, qr_parts[0].data, NULL);
   lv_obj_center(qr_code_obj);
 
   if (qr_parts_count > 1) {

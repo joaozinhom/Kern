@@ -376,10 +376,9 @@ static void apply_btn_cb(lv_event_t *e) {
     return;
 
   if (selected_account > 99) {
-    dialog_show_confirm(
-        "Account numbers above 99 are not recommended.\n\n"
-        "Continue?",
-        apply_with_warning_cb, NULL, DIALOG_STYLE_OVERLAY);
+    dialog_show_confirm("Account numbers above 99 are not recommended.\n\n"
+                        "Continue?",
+                        apply_with_warning_cb, NULL, DIALOG_STYLE_OVERLAY);
     return;
   }
   do_apply_settings();

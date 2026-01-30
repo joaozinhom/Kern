@@ -9,7 +9,7 @@
 #include "../settings/wallet_settings.h"
 #include "../sign/sign.h"
 #include "addresses.h"
-#include "backup/mnemonic_words.h"
+#include "backup/backup_menu.h"
 #include "public_key.h"
 #include <esp_log.h>
 #include <esp_system.h>
@@ -22,7 +22,7 @@ static void menu_backup_cb(void);
 static void menu_xpub_cb(void);
 static void menu_addresses_cb(void);
 static void menu_sign_cb(void);
-static void return_from_mnemonic_words_cb(void);
+static void return_from_backup_menu_cb(void);
 static void return_from_public_key_cb(void);
 static void return_from_addresses_cb(void);
 static void return_from_sign_cb(void);
@@ -30,8 +30,8 @@ static void return_from_wallet_settings_cb(void);
 
 static void menu_backup_cb(void) {
   home_page_hide();
-  mnemonic_words_page_create(lv_screen_active(), return_from_mnemonic_words_cb);
-  mnemonic_words_page_show();
+  backup_menu_page_create(lv_screen_active(), return_from_backup_menu_cb);
+  backup_menu_page_show();
 }
 
 static void menu_xpub_cb(void) {
@@ -75,8 +75,8 @@ static void refresh_home_if_needed(void) {
   home_page_show();
 }
 
-static void return_from_mnemonic_words_cb(void) {
-  mnemonic_words_page_destroy();
+static void return_from_backup_menu_cb(void) {
+  backup_menu_page_destroy();
   home_page_show();
 }
 

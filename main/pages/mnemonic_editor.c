@@ -520,7 +520,8 @@ static void back_confirm_cb(bool confirmed, void *user_data) {
 
 static void back_btn_cb(lv_event_t *e) {
   (void)e;
-  dialog_show_confirm("Are you sure?", back_confirm_cb, NULL, DIALOG_STYLE_OVERLAY);
+  dialog_show_confirm("Are you sure?", back_confirm_cb, NULL,
+                      DIALOG_STYLE_OVERLAY);
 }
 
 static void return_from_key_confirmation_cb(void) {

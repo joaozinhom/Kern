@@ -99,7 +99,7 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
 - New Mnemonic
   - ✅ From dice rolls
   - ✅ From words
-  - ❌ From camera
+  - ✅ From camera
 - Load Mnemonic
   - ✅ From manual input (typing words)
   - From QR codes
@@ -109,7 +109,8 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
   - ❌ Encrypted
 - Back up
   - ✅ Words
-  - ❌ QR codes
+  - ✅ QR codes
+  - ❌ Binary Grids
   - ❌ Encrypted
 - ✅ Passphrases
 - Networks

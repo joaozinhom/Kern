@@ -3,12 +3,12 @@
 #include <lvgl.h>
 
 #include "../../ui/dialog.h"
-#include "../../ui/theme.h"
 #include "../../ui/menu.h"
-#include "about.h"
+#include "../../ui/theme.h"
 #include "../dev_tools/dev_menu.h"
 #include "../load_mnemonic/load_menu.h"
 #include "../new_mnemonic/new_mnemonic_menu.h"
+#include "about.h"
 
 static ui_menu_t *login_menu = NULL;
 static lv_obj_t *login_screen = NULL;

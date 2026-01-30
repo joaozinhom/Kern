@@ -1,8 +1,8 @@
 // UI Menu Component - Touch menu for LVGL
 
 #include "menu.h"
-#include "theme.h"
 #include "input_helpers.h"
+#include "theme.h"
 #include <stdlib.h>
 #include <string.h>
 

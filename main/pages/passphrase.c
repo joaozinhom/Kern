@@ -35,7 +35,8 @@ static void keyboard_ready_cb(lv_event_t *e) {
   char prompt[128];
   snprintf(prompt, sizeof(prompt), "Confirm passphrase:\n\"%s\"",
            lv_textarea_get_text(textarea));
-  dialog_show_confirm(prompt, confirm_passphrase_cb, NULL, DIALOG_STYLE_OVERLAY);
+  dialog_show_confirm(prompt, confirm_passphrase_cb, NULL,
+                      DIALOG_STYLE_OVERLAY);
 }
 
 void passphrase_page_create(lv_obj_t *parent, void (*return_cb)(void),
