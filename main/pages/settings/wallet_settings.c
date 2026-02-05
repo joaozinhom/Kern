@@ -10,6 +10,7 @@
 #include "../../ui/key_info.h"
 #include "../../ui/theme.h"
 #include "../passphrase.h"
+#include "descriptor_manager.h"
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,7 @@ static lv_obj_t *back_button = NULL;
 static lv_obj_t *network_dropdown = NULL;
 static lv_obj_t *policy_dropdown = NULL;
 static lv_obj_t *passphrase_btn = NULL;
+static lv_obj_t *descriptor_btn = NULL;
 static lv_obj_t *apply_btn = NULL;
 static lv_obj_t *apply_label = NULL;
 static lv_obj_t *title_cont = NULL;
@@ -346,6 +348,37 @@ static void passphrase_success_cb(const char *passphrase) {
   update_apply_button_state();
 }
 
+static void refresh_wallet_attributes(void) {
+  selected_network = wallet_get_network();
+  selected_policy = wallet_get_policy();
+  selected_account = wallet_get_account();
+  settings_changed = false;
+
+  if (network_dropdown)
+    lv_dropdown_set_selected(
+        network_dropdown, (selected_network == WALLET_NETWORK_MAINNET) ? 0 : 1);
+  if (policy_dropdown)
+    lv_dropdown_set_selected(
+        policy_dropdown, (selected_policy == WALLET_POLICY_SINGLESIG) ? 0 : 1);
+
+  update_account_display();
+  update_derivation_path();
+  update_apply_button_state();
+}
+
+static void descriptor_return_cb(void) {
+  descriptor_manager_page_destroy();
+  wallet_settings_page_show();
+  refresh_wallet_attributes();
+}
+
+static void descriptor_btn_cb(lv_event_t *e) {
+  (void)e;
+  wallet_settings_page_hide();
+  descriptor_manager_page_create(lv_screen_active(), descriptor_return_cb);
+  descriptor_manager_page_show();
+}
+
 static void passphrase_btn_cb(lv_event_t *e) {
   (void)e;
   wallet_settings_page_hide();
@@ -494,10 +527,17 @@ void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
                         LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_gap(content, theme_get_default_padding(), 0);
 
-  // Passphrase button
-  passphrase_btn = lv_btn_create(content);
-  lv_obj_set_size(passphrase_btn, LV_PCT(60), 50);
-  lv_obj_set_style_margin_top(passphrase_btn, 20, 0);
+  // Passphrase + Descriptor row container (side by side)
+  lv_obj_t *pp_desc_row = lv_obj_create(content);
+  lv_obj_set_size(pp_desc_row, LV_PCT(90), LV_SIZE_CONTENT);
+  theme_apply_transparent_container(pp_desc_row);
+  lv_obj_set_flex_flow(pp_desc_row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(pp_desc_row, LV_FLEX_ALIGN_SPACE_EVENLY,
+                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_margin_top(pp_desc_row, 20, 0);
+
+  passphrase_btn = lv_btn_create(pp_desc_row);
+  lv_obj_set_size(passphrase_btn, LV_PCT(45), 50);
   theme_apply_touch_button(passphrase_btn, false);
   lv_obj_add_event_cb(passphrase_btn, passphrase_btn_cb, LV_EVENT_CLICKED,
                       NULL);
@@ -507,6 +547,18 @@ void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   lv_obj_set_style_text_font(pp_label, theme_font_medium(), 0);
   lv_obj_set_style_text_color(pp_label, main_color(), 0);
   lv_obj_center(pp_label);
+
+  descriptor_btn = lv_btn_create(pp_desc_row);
+  lv_obj_set_size(descriptor_btn, LV_PCT(45), 50);
+  theme_apply_touch_button(descriptor_btn, false);
+  lv_obj_add_event_cb(descriptor_btn, descriptor_btn_cb, LV_EVENT_CLICKED,
+                      NULL);
+
+  lv_obj_t *desc_label = lv_label_create(descriptor_btn);
+  lv_label_set_text(desc_label, "Descriptor");
+  lv_obj_set_style_text_font(desc_label, theme_font_medium(), 0);
+  lv_obj_set_style_text_color(desc_label, main_color(), 0);
+  lv_obj_center(desc_label);
 
   // Network + Policy row container (side by side)
   lv_obj_t *net_policy_row = lv_obj_create(content);
@@ -645,6 +697,7 @@ void wallet_settings_page_destroy(void) {
   network_dropdown = NULL;
   policy_dropdown = NULL;
   passphrase_btn = NULL;
+  descriptor_btn = NULL;
   account_btn = NULL;
   account_value_label = NULL;
   apply_btn = NULL;

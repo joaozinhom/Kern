@@ -245,6 +245,14 @@ void wallet_clear_descriptor(void) {
   }
 }
 
+bool wallet_get_descriptor_string(char **output) {
+  if (!loaded_descriptor || !output) {
+    return false;
+  }
+  int ret = wally_descriptor_canonicalize(loaded_descriptor, 0, output);
+  return (ret == WALLY_OK);
+}
+
 // Multisig address generation using loaded descriptor
 // multi_index: 0 = receive, 1 = change (for descriptors with <0;1> multipath)
 static bool derive_multisig_address(uint32_t multi_index, uint32_t child_num,

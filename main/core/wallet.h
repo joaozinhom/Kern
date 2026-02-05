@@ -52,6 +52,7 @@ bool wallet_set_policy(wallet_policy_t policy);
 bool wallet_has_descriptor(void);
 bool wallet_load_descriptor(const char *descriptor_str);
 void wallet_clear_descriptor(void);
+bool wallet_get_descriptor_string(char **output);
 
 // Multisig address generation (requires loaded descriptor)
 bool wallet_get_multisig_receive_address(uint32_t index, char **address_out);
