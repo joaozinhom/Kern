@@ -201,6 +201,7 @@ void dialog_show_confirm(const char *message,
   lv_obj_t *dialog = create_dialog_container(style, &ctx->root);
 
   lv_obj_t *msg_label = theme_create_label(dialog, message, false);
+  lv_label_set_recolor(msg_label, true);
   lv_obj_set_width(msg_label, LV_PCT(90));
   lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);

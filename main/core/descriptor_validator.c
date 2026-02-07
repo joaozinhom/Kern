@@ -448,7 +448,7 @@ static void check_attributes_and_verify(struct wally_descriptor *descriptor,
   current_ctx->needs_account_change = account_mismatch;
 
   // Build confirmation message
-  char message[384];
+  char message[512];
   int offset = 0;
   offset += snprintf(message + offset, sizeof(message) - offset,
                      "Descriptor requires different settings:\n\n");
@@ -459,7 +459,8 @@ static void check_attributes_and_verify(struct wally_descriptor *descriptor,
     const char *target_net =
         (desc_network == WALLET_NETWORK_MAINNET) ? "Mainnet" : "Testnet";
     offset += snprintf(message + offset, sizeof(message) - offset,
-                       "  Network: %s -> %s\n", current_net, target_net);
+                       "#FFFFFF   Network: %s -> ##FF6600 %s#\n", current_net,
+                       target_net);
   }
 
   if (policy_mismatch) {
@@ -468,12 +469,14 @@ static void check_attributes_and_verify(struct wally_descriptor *descriptor,
     const char *target_pol =
         (desc_policy == WALLET_POLICY_SINGLESIG) ? "Single-sig" : "Multisig";
     offset += snprintf(message + offset, sizeof(message) - offset,
-                       "  Policy: %s -> %s\n", current_pol, target_pol);
+                       "#FFFFFF   Policy: %s -> ##FF6600 %s#\n", current_pol,
+                       target_pol);
   }
 
   if (account_mismatch) {
     offset += snprintf(message + offset, sizeof(message) - offset,
-                       "  Account: %u -> %u\n", wallet_account, desc_account);
+                       "#FFFFFF   Account: %u -> ##FF6600 %u#\n",
+                       wallet_account, desc_account);
   }
 
   snprintf(message + offset, sizeof(message) - offset,
