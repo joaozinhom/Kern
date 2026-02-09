@@ -3,6 +3,8 @@
 #include "addresses.h"
 #include "../../core/wallet.h"
 #include "../../qr/scanner.h"
+#include "../../ui/assets/icons_36.h"
+#include "../../ui/dialog.h"
 #include "../../ui/input_helpers.h"
 #include "../../ui/key_info.h"
 #include "../../ui/theme.h"
@@ -10,7 +12,9 @@
 #include "../settings/wallet_settings.h"
 #include <lvgl.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include <wally_address.h>
 #include <wally_core.h>
 
 #define NUM_ADDRESSES 8
@@ -35,7 +39,15 @@ static char stored_addresses[NUM_ADDRESSES][128];
 static uint32_t stored_indices[NUM_ADDRESSES];
 static int stored_count = 0;
 
+static lv_obj_t *scan_button = NULL;
+static char *scanned_address = NULL;
+static uint32_t scan_search_start = 0;
+static uint32_t scan_search_limit = 50;
+
 static void refresh_address_list(void);
+static void scan_button_cb(lv_event_t *e);
+static void return_from_scan_cb(void);
+static void perform_address_sweep(void);
 
 // Format address as 4-char blocks with alternating main/highlight colors
 static void format_address_colored_blocks(char *dest, size_t dest_size,
@@ -335,6 +347,133 @@ static lv_obj_t *create_nav_button(lv_obj_t *parent, const char *text,
   return btn;
 }
 
+// --- Scan address flow ---
+
+static void scan_found_cb(void *user_data) {
+  (void)user_data;
+  free(scanned_address);
+  scanned_address = NULL;
+  addresses_page_show();
+}
+
+static void scan_not_found_cb(bool confirmed, void *user_data) {
+  (void)user_data;
+  if (confirmed) {
+    scan_search_start = scan_search_limit;
+    scan_search_limit += 50;
+    perform_address_sweep();
+    return;
+  }
+  free(scanned_address);
+  scanned_address = NULL;
+  addresses_page_show();
+}
+
+static void perform_address_sweep(void) {
+  wallet_policy_t policy = wallet_get_policy();
+
+  // Search receive addresses
+  for (uint32_t i = scan_search_start; i < scan_search_limit; i++) {
+    char *address = NULL;
+    bool success;
+
+    if (policy == WALLET_POLICY_MULTISIG)
+      success = wallet_get_multisig_receive_address(i, &address);
+    else
+      success = wallet_get_receive_address(i, &address);
+
+    if (!success || !address)
+      continue;
+
+    if (strcmp(address, scanned_address) == 0) {
+      wally_free_string(address);
+      char msg[64];
+      snprintf(msg, sizeof(msg), "Receive #%u", i);
+      dialog_show_info("Address Verified", msg, scan_found_cb, NULL,
+                       DIALOG_STYLE_FULLSCREEN);
+      return;
+    }
+    wally_free_string(address);
+  }
+
+  // Search change addresses
+  for (uint32_t i = scan_search_start; i < scan_search_limit; i++) {
+    char *address = NULL;
+    bool success;
+
+    if (policy == WALLET_POLICY_MULTISIG)
+      success = wallet_get_multisig_change_address(i, &address);
+    else
+      success = wallet_get_change_address(i, &address);
+
+    if (!success || !address)
+      continue;
+
+    if (strcmp(address, scanned_address) == 0) {
+      wally_free_string(address);
+      char msg[64];
+      snprintf(msg, sizeof(msg), "Change #%u", i);
+      dialog_show_info("Address Verified", msg, scan_found_cb, NULL,
+                       DIALOG_STYLE_FULLSCREEN);
+      return;
+    }
+    wally_free_string(address);
+  }
+
+  // Not found
+  char msg[192];
+  snprintf(msg, sizeof(msg),
+           "Address not found in first %u addresses.\n\n"
+           "(Check if loaded wallet settings match coordinator's)\n\n"
+           "Search 50 more?",
+           scan_search_limit);
+  dialog_show_confirm(msg, scan_not_found_cb, NULL, DIALOG_STYLE_FULLSCREEN);
+}
+
+static void return_from_scan_cb(void) {
+  char *content = qr_scanner_get_completed_content();
+  qr_scanner_page_destroy();
+
+  if (!content) {
+    addresses_page_show();
+    return;
+  }
+
+  // Validate address using libwally
+  const char *hrp =
+      (wallet_get_network() == WALLET_NETWORK_MAINNET) ? "bc" : "tb";
+  uint32_t wally_net = (wallet_get_network() == WALLET_NETWORK_MAINNET)
+                           ? WALLY_NETWORK_BITCOIN_MAINNET
+                           : WALLY_NETWORK_BITCOIN_TESTNET;
+  unsigned char script[128];
+  size_t written = 0;
+  bool valid =
+      (wally_addr_segwit_to_bytes(content, hrp, 0, script, sizeof(script),
+                                  &written) == WALLY_OK) ||
+      (wally_address_to_scriptpubkey(content, wally_net, script, sizeof(script),
+                                     &written) == WALLY_OK);
+  if (!valid) {
+    free(content);
+    dialog_show_error("Invalid address", NULL, 0);
+    addresses_page_show();
+    return;
+  }
+
+  if (scanned_address)
+    free(scanned_address);
+  scanned_address = content;
+  scan_search_start = 0;
+  scan_search_limit = 50;
+  perform_address_sweep();
+}
+
+static void scan_button_cb(lv_event_t *e) {
+  (void)e;
+  addresses_page_hide();
+  qr_scanner_page_create(NULL, return_from_scan_cb);
+  qr_scanner_page_show();
+}
+
 void addresses_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   if (!parent || !wallet_is_initialized())
     return;
@@ -383,10 +522,20 @@ void addresses_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   type_button =
-      create_nav_button(btn_cont, "Receive", LV_PCT(60), type_button_cb);
+      create_nav_button(btn_cont, "Receive", LV_PCT(40), type_button_cb);
   prev_button = create_nav_button(btn_cont, "<", LV_PCT(15), prev_button_cb);
   next_button = create_nav_button(btn_cont, ">", LV_PCT(15), next_button_cb);
   lv_obj_add_state(prev_button, LV_STATE_DISABLED);
+
+  // Scan address button with QR icon
+  scan_button = lv_btn_create(btn_cont);
+  lv_obj_set_size(scan_button, LV_PCT(22), LV_SIZE_CONTENT);
+  theme_apply_touch_button(scan_button, false);
+  lv_obj_t *scan_label = lv_label_create(scan_button);
+  lv_label_set_text(scan_label, ICON_QRCODE_36);
+  lv_obj_set_style_text_font(scan_label, &icons_36, 0);
+  lv_obj_center(scan_label);
+  lv_obj_add_event_cb(scan_button, scan_button_cb, LV_EVENT_CLICKED, NULL);
 
   // Hide navigation buttons if multisig without descriptor
   if (needs_descriptor) {
@@ -445,6 +594,7 @@ void addresses_page_destroy(void) {
   type_button = NULL;
   prev_button = NULL;
   next_button = NULL;
+  scan_button = NULL;
   load_descriptor_btn = NULL;
   btn_cont = NULL;
   address_list_container = NULL;
@@ -452,4 +602,10 @@ void addresses_page_destroy(void) {
   show_change = false;
   address_offset = 0;
   stored_count = 0;
+  if (scanned_address) {
+    free(scanned_address);
+    scanned_address = NULL;
+  }
+  scan_search_start = 0;
+  scan_search_limit = 50;
 }

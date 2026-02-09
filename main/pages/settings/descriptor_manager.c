@@ -290,11 +290,8 @@ void descriptor_manager_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   lv_obj_set_flex_align(content_area, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  no_descriptor_label = theme_create_label(
-      content_area,
-      "No descriptor loaded.\n\nScan a wallet descriptor\nto "
-      "view it here.",
-      false);
+  no_descriptor_label =
+      theme_create_label(content_area, "No descriptor loaded.", false);
   lv_obj_set_style_text_align(no_descriptor_label, LV_TEXT_ALIGN_CENTER, 0);
 
   lv_obj_update_layout(content_area);
@@ -319,7 +316,7 @@ void descriptor_manager_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   lv_obj_center(qr_code);
 
   load_btn = lv_btn_create(descriptor_screen);
-  lv_obj_set_size(load_btn, LV_PCT(80), 50);
+  lv_obj_set_size(load_btn, LV_PCT(80), 100);
   theme_apply_touch_button(load_btn, false);
   lv_obj_add_event_cb(load_btn, load_descriptor_btn_cb, LV_EVENT_CLICKED, NULL);
 
