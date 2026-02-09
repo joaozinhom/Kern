@@ -179,6 +179,9 @@ int qr_parser_parse_with_len(QRPartParser *parser, const char *data,
 
     ur_decoder_t *decoder = (ur_decoder_t *)parser->ur_decoder;
     if (ur_decoder_receive_part(decoder, data)) {
+      if (ur_decoder_is_complete(decoder)) {
+        return 0; // Single-part UR, complete immediately
+      }
       size_t processed = ur_decoder_processed_parts_count(decoder);
       return (int)processed - 1;
     }
