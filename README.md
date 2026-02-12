@@ -119,11 +119,12 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
 - ✅ Account
 - Policy types
   - ✅ Single-sig
-  - ❌ Multisig
+  - ✅ Multisig
   - ❌ Miniscript
 - Descriptors
-  - ❌ Loading
-  - ❌ Exporting, saving
+  - ✅ Loading
+  - ✅ Exporting
+  - ❌ saving
   - ❌ Encrypting/Decrypting
 - Script type
   - ✅ Native Segwit
