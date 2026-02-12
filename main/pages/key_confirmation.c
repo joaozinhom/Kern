@@ -6,6 +6,7 @@
 #include "../ui/dialog.h"
 #include "../ui/theme.h"
 #include "../utils/memory_utils.h"
+#include "../utils/secure_mem.h"
 #include <lvgl.h>
 #include <string.h>
 #include <wally_bip32.h>
@@ -118,13 +119,13 @@ void key_confirmation_page_create(lv_obj_t *parent, void (*return_cb)(void),
           WALLY_OK ||
       bip32_key_from_seed_alloc(seed, sizeof(seed), BIP32_VER_MAIN_PRIVATE, 0,
                                 &master_key) != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     dialog_show_error("Failed to process mnemonic", return_callback, 0);
     return;
   }
 
   bip32_key_get_fingerprint(master_key, fingerprint, BIP32_KEY_FINGERPRINT_LEN);
-  memset(seed, 0, sizeof(seed));
+  secure_memzero(seed, sizeof(seed));
   bip32_key_free(master_key);
 
   char *fingerprint_hex = NULL;

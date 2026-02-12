@@ -14,6 +14,7 @@
 #include "../ui/dialog.h"
 #include "../ui/theme.h"
 #include "../utils/memory_utils.h"
+#include "../utils/secure_mem.h"
 
 static const char *TAG = "capture_entropy";
 
@@ -255,7 +256,7 @@ void capture_entropy_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   dialog_showing = false;
   active_frame_ops = 0;
   entropy_captured = false;
-  memset(captured_entropy, 0, sizeof(captured_entropy));
+  secure_memzero(captured_entropy, sizeof(captured_entropy));
 
   capture_screen = lv_obj_create(lv_screen_active());
   lv_obj_set_size(capture_screen, LV_PCT(100), LV_PCT(100));
@@ -371,5 +372,5 @@ bool capture_entropy_has_result(void) { return entropy_captured; }
 
 void capture_entropy_clear(void) {
   entropy_captured = false;
-  memset(captured_entropy, 0, sizeof(captured_entropy));
+  secure_memzero(captured_entropy, sizeof(captured_entropy));
 }

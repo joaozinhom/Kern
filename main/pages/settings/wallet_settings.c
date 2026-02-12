@@ -18,6 +18,8 @@
 #include <wally_bip39.h>
 #include <wally_core.h>
 
+#include "../../utils/secure_mem.h"
+
 static lv_obj_t *wallet_settings_screen = NULL;
 static lv_obj_t *back_button = NULL;
 static lv_obj_t *network_dropdown = NULL;
@@ -288,18 +290,19 @@ static void update_title_with_passphrase(const char *passphrase) {
 
   if (bip39_mnemonic_to_seed512(mnemonic_content, passphrase, seed,
                                 sizeof(seed)) != WALLY_OK) {
+    secure_memzero(seed, sizeof(seed));
     return;
   }
 
   if (bip32_key_from_seed_alloc(seed, sizeof(seed), BIP32_VER_MAIN_PRIVATE, 0,
                                 &master_key) != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return;
   }
 
   unsigned char fingerprint[BIP32_KEY_FINGERPRINT_LEN];
   bip32_key_get_fingerprint(master_key, fingerprint, BIP32_KEY_FINGERPRINT_LEN);
-  memset(seed, 0, sizeof(seed));
+  secure_memzero(seed, sizeof(seed));
   bip32_key_free(master_key);
 
   char *passphrase_fp_hex = NULL;
@@ -327,12 +330,7 @@ static void passphrase_return_cb(void) {
 }
 
 static void passphrase_success_cb(const char *passphrase) {
-  // Store the passphrase
-  if (stored_passphrase) {
-    memset(stored_passphrase, 0, strlen(stored_passphrase));
-    free(stored_passphrase);
-    stored_passphrase = NULL;
-  }
+  SECURE_FREE_STRING(stored_passphrase);
 
   if (passphrase && passphrase[0] != '\0') {
     stored_passphrase = strdup(passphrase);
@@ -455,14 +453,14 @@ void wallet_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
           WALLY_OK ||
       bip32_key_from_seed_alloc(seed, sizeof(seed), BIP32_VER_MAIN_PRIVATE, 0,
                                 &master_key) != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     dialog_show_error("Failed to process mnemonic", return_callback, 0);
     return;
   }
 
   unsigned char fingerprint[BIP32_KEY_FINGERPRINT_LEN];
   bip32_key_get_fingerprint(master_key, fingerprint, BIP32_KEY_FINGERPRINT_LEN);
-  memset(seed, 0, sizeof(seed));
+  secure_memzero(seed, sizeof(seed));
   bip32_key_free(master_key);
 
   char *fingerprint_hex = NULL;
@@ -674,19 +672,8 @@ void wallet_settings_page_destroy(void) {
   // Close account overlay if open
   close_account_overlay();
 
-  // Securely clear passphrase
-  if (stored_passphrase) {
-    memset(stored_passphrase, 0, strlen(stored_passphrase));
-    free(stored_passphrase);
-    stored_passphrase = NULL;
-  }
-
-  // Clear mnemonic
-  if (mnemonic_content) {
-    memset(mnemonic_content, 0, strlen(mnemonic_content));
-    free(mnemonic_content);
-    mnemonic_content = NULL;
-  }
+  SECURE_FREE_STRING(stored_passphrase);
+  SECURE_FREE_STRING(mnemonic_content);
 
   if (wallet_settings_screen) {
     lv_obj_del(wallet_settings_screen);
@@ -704,7 +691,7 @@ void wallet_settings_page_destroy(void) {
   apply_label = NULL;
   title_cont = NULL;
   derivation_label = NULL;
-  memset(base_fingerprint_hex, 0, sizeof(base_fingerprint_hex));
+  secure_memzero(base_fingerprint_hex, sizeof(base_fingerprint_hex));
   return_callback = NULL;
   selected_network = WALLET_NETWORK_MAINNET;
   selected_policy = WALLET_POLICY_SINGLESIG;

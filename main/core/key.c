@@ -1,4 +1,5 @@
 #include "key.h"
+#include "../utils/secure_mem.h"
 #include <esp_log.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,7 +14,7 @@ static bool key_loaded = false;
 bool key_init(void) {
   key_loaded = false;
   master_key = NULL;
-  memset(fingerprint, 0, sizeof(fingerprint));
+  secure_memzero(fingerprint, sizeof(fingerprint));
   return true;
 }
 
@@ -39,7 +40,7 @@ bool key_load_from_mnemonic(const char *mnemonic, const char *passphrase,
 
   ret = bip39_mnemonic_to_seed512(mnemonic, passphrase, seed, sizeof(seed));
   if (ret != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return false;
   }
 
@@ -48,7 +49,7 @@ bool key_load_from_mnemonic(const char *mnemonic, const char *passphrase,
   ret = bip32_key_from_seed_alloc(seed, sizeof(seed), bip32_version, 0,
                                   &master_key);
   if (ret != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return false;
   }
 
@@ -57,7 +58,7 @@ bool key_load_from_mnemonic(const char *mnemonic, const char *passphrase,
   if (ret != WALLY_OK) {
     bip32_key_free(master_key);
     master_key = NULL;
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return false;
   }
 
@@ -65,11 +66,11 @@ bool key_load_from_mnemonic(const char *mnemonic, const char *passphrase,
   if (!stored_mnemonic) {
     bip32_key_free(master_key);
     master_key = NULL;
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return false;
   }
 
-  memset(seed, 0, sizeof(seed));
+  secure_memzero(seed, sizeof(seed));
   key_loaded = true;
 
   return true;
@@ -80,12 +81,8 @@ void key_unload(void) {
     bip32_key_free(master_key);
     master_key = NULL;
   }
-  if (stored_mnemonic) {
-    memset(stored_mnemonic, 0, strlen(stored_mnemonic));
-    free(stored_mnemonic);
-    stored_mnemonic = NULL;
-  }
-  memset(fingerprint, 0, sizeof(fingerprint));
+  SECURE_FREE_STRING(stored_mnemonic);
+  secure_memzero(fingerprint, sizeof(fingerprint));
   key_loaded = false;
 }
 
@@ -223,7 +220,7 @@ bool key_get_mnemonic_words(char ***words_out, size_t *word_count_out) {
 
   char **words = (char **)malloc(count * sizeof(char *));
   if (!words) {
-    free(mnemonic_copy);
+    SECURE_FREE_STRING(mnemonic_copy);
     return false;
   }
 
@@ -236,13 +233,13 @@ bool key_get_mnemonic_words(char ***words_out, size_t *word_count_out) {
         free(words[j]);
       }
       free(words);
-      free(mnemonic_copy);
+      SECURE_FREE_STRING(mnemonic_copy);
       return false;
     }
     token = strtok(NULL, " ");
   }
 
-  free(mnemonic_copy);
+  SECURE_FREE_STRING(mnemonic_copy);
   *words_out = words;
   *word_count_out = count;
 

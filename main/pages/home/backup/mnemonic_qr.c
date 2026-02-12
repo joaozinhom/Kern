@@ -10,6 +10,8 @@
 #include <string.h>
 #include <wally_core.h>
 
+#include "../../../utils/secure_mem.h"
+
 #define GRID_INTERVAL_DEFAULT 5
 #define GRID_INTERVAL_21 7
 #define LEGEND_SIZE 28
@@ -353,13 +355,11 @@ void mnemonic_qr_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   compact_seedqr_data =
       mnemonic_to_compact_seedqr(mnemonic_data, &compact_seedqr_len);
   if (!seedqr_data || !compact_seedqr_data) {
-    memset(mnemonic_data, 0, strlen(mnemonic_data));
+    secure_memzero(mnemonic_data, strlen(mnemonic_data));
     wally_free_string(mnemonic_data);
     mnemonic_data = NULL;
-    free(seedqr_data);
-    seedqr_data = NULL;
-    free(compact_seedqr_data);
-    compact_seedqr_data = NULL;
+    SECURE_FREE_STRING(seedqr_data);
+    SECURE_FREE_BUFFER(compact_seedqr_data, compact_seedqr_len);
     compact_seedqr_len = 0;
     return;
   }
@@ -464,23 +464,14 @@ void mnemonic_qr_page_destroy(void) {
   destroy_grid_overlay();
 
   if (mnemonic_data) {
-    memset(mnemonic_data, 0, strlen(mnemonic_data));
+    secure_memzero(mnemonic_data, strlen(mnemonic_data));
     wally_free_string(mnemonic_data);
     mnemonic_data = NULL;
   }
 
-  if (seedqr_data) {
-    memset(seedqr_data, 0, strlen(seedqr_data));
-    free(seedqr_data);
-    seedqr_data = NULL;
-  }
-
-  if (compact_seedqr_data) {
-    memset(compact_seedqr_data, 0, compact_seedqr_len);
-    free(compact_seedqr_data);
-    compact_seedqr_data = NULL;
-    compact_seedqr_len = 0;
-  }
+  SECURE_FREE_STRING(seedqr_data);
+  SECURE_FREE_BUFFER(compact_seedqr_data, compact_seedqr_len);
+  compact_seedqr_len = 0;
 
   if (back_button) {
     lv_obj_del(back_button);

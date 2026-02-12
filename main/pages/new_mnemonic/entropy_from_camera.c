@@ -12,6 +12,8 @@
 #include <wally_bip39.h>
 #include <wally_core.h>
 
+#include "../../utils/secure_mem.h"
+
 #define ENTROPY_12_WORDS 16
 #define ENTROPY_24_WORDS 32
 
@@ -128,7 +130,7 @@ static void show_hash_display(void) {
 static void hash_back_cb(lv_event_t *e) {
   (void)e;
   hash_captured = false;
-  memset(entropy_hash, 0, sizeof(entropy_hash));
+  secure_memzero(entropy_hash, sizeof(entropy_hash));
   create_word_count_menu();
 }
 
@@ -157,7 +159,7 @@ static void proceed_cb(lv_event_t *e) {
   completed_mnemonic = strdup(mnemonic);
   wally_free_string(mnemonic);
 
-  memset(entropy_hash, 0, sizeof(entropy_hash));
+  secure_memzero(entropy_hash, sizeof(entropy_hash));
   hash_captured = false;
 
   entropy_from_camera_page_hide();
@@ -187,7 +189,7 @@ void entropy_from_camera_page_create(lv_obj_t *parent,
 
   total_words = 0;
   hash_captured = false;
-  memset(entropy_hash, 0, sizeof(entropy_hash));
+  secure_memzero(entropy_hash, sizeof(entropy_hash));
 
   entropy_screen = theme_create_page_container(parent);
 
@@ -212,7 +214,7 @@ void entropy_from_camera_page_destroy(void) {
     entropy_screen = NULL;
   }
 
-  memset(entropy_hash, 0, sizeof(entropy_hash));
+  secure_memzero(entropy_hash, sizeof(entropy_hash));
   hash_captured = false;
   total_words = 0;
   return_callback = NULL;

@@ -18,6 +18,8 @@
 #include <wally_core.h>
 #include <wally_crypto.h>
 
+#include "../utils/secure_mem.h"
+
 #define MAX_MNEMONIC_LEN 256
 
 typedef enum {
@@ -87,7 +89,9 @@ static bool is_checksum_valid(void) {
             sizeof(mnemonic) - strlen(mnemonic) - 1);
   }
 
-  return bip39_mnemonic_validate(NULL, mnemonic) == WALLY_OK;
+  bool valid = bip39_mnemonic_validate(NULL, mnemonic) == WALLY_OK;
+  secure_memzero(mnemonic, sizeof(mnemonic));
+  return valid;
 }
 
 static bool get_mnemonic_fingerprint_hex(char *hex_out) {
@@ -104,16 +108,21 @@ static bool get_mnemonic_fingerprint_hex(char *hex_out) {
   }
 
   unsigned char seed[BIP39_SEED_LEN_512];
-  if (bip39_mnemonic_to_seed512(mnemonic, NULL, seed, sizeof(seed)) != WALLY_OK)
+  if (bip39_mnemonic_to_seed512(mnemonic, NULL, seed, sizeof(seed)) !=
+      WALLY_OK) {
+    secure_memzero(mnemonic, sizeof(mnemonic));
+    secure_memzero(seed, sizeof(seed));
     return false;
+  }
+  secure_memzero(mnemonic, sizeof(mnemonic));
 
   struct ext_key *master_key = NULL;
   if (bip32_key_from_seed_alloc(seed, sizeof(seed), BIP32_VER_MAIN_PRIVATE, 0,
                                 &master_key) != WALLY_OK) {
-    memset(seed, 0, sizeof(seed));
+    secure_memzero(seed, sizeof(seed));
     return false;
   }
-  memset(seed, 0, sizeof(seed));
+  secure_memzero(seed, sizeof(seed));
 
   unsigned char fingerprint[BIP32_KEY_FINGERPRINT_LEN];
   if (bip32_key_get_fingerprint(master_key, fingerprint,
@@ -238,8 +247,8 @@ static void filter_words_by_prefix(void) {
 
 static void parse_mnemonic(const char *mnemonic) {
   total_words = 0;
-  memset(entered_words, 0, sizeof(entered_words));
-  memset(original_words, 0, sizeof(original_words));
+  secure_memzero(entered_words, sizeof(entered_words));
+  secure_memzero(original_words, sizeof(original_words));
 
   if (!mnemonic || !*mnemonic)
     return;
@@ -769,10 +778,10 @@ void mnemonic_editor_page_destroy(void) {
   checksum_error_label = NULL;
   is_new_mnemonic = false;
   memset(word_labels, 0, sizeof(word_labels));
-  memset(entered_words, 0, sizeof(entered_words));
-  memset(original_words, 0, sizeof(original_words));
-  memset(current_prefix, 0, sizeof(current_prefix));
-  memset(pending_word, 0, sizeof(pending_word));
+  secure_memzero(entered_words, sizeof(entered_words));
+  secure_memzero(original_words, sizeof(original_words));
+  secure_memzero(current_prefix, sizeof(current_prefix));
+  secure_memzero(pending_word, sizeof(pending_word));
 
   return_callback = NULL;
   success_callback = NULL;

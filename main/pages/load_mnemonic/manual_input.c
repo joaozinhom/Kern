@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../../utils/secure_mem.h"
+
 typedef enum {
   MODE_WORD_COUNT_SELECT,
   MODE_KEYBOARD_INPUT,
@@ -231,7 +233,7 @@ static void on_word_count_selected(int word_count) {
   current_word_index = 0;
   prefix_len = 0;
   current_prefix[0] = '\0';
-  memset(entered_words, 0, sizeof(entered_words));
+  secure_memzero(entered_words, sizeof(entered_words));
   create_keyboard_input();
 }
 
@@ -353,7 +355,7 @@ void manual_input_page_create(lv_obj_t *parent, void (*return_cb)(void),
   prefix_len = 0;
   current_prefix[0] = '\0';
   filtered_count = 0;
-  memset(entered_words, 0, sizeof(entered_words));
+  secure_memzero(entered_words, sizeof(entered_words));
   bip39_filter_clear_last_word_cache();
 
   manual_input_screen = theme_create_page_container(parent);
@@ -387,9 +389,9 @@ void manual_input_page_destroy(void) {
     manual_input_screen = NULL;
   }
 
-  memset(entered_words, 0, sizeof(entered_words));
-  memset(current_prefix, 0, sizeof(current_prefix));
-  memset(pending_word, 0, sizeof(pending_word));
+  secure_memzero(entered_words, sizeof(entered_words));
+  secure_memzero(current_prefix, sizeof(current_prefix));
+  secure_memzero(pending_word, sizeof(pending_word));
 
   return_callback = NULL;
   success_callback = NULL;

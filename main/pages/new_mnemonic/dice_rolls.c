@@ -12,6 +12,8 @@
 #include <wally_core.h>
 #include <wally_crypto.h>
 
+#include "../../utils/secure_mem.h"
+
 #define MIN_ROLLS_12_WORDS 50
 #define MIN_ROLLS_24_WORDS 99
 #define MAX_ROLLS 256
@@ -214,8 +216,8 @@ static bool generate_mnemonic_from_rolls(void) {
   completed_mnemonic = strdup(mnemonic);
   wally_free_string(mnemonic);
 
-  memset(hash, 0, sizeof(hash));
-  memset(rolls_string, 0, sizeof(rolls_string));
+  secure_memzero(hash, sizeof(hash));
+  secure_memzero(rolls_string, sizeof(rolls_string));
   rolls_count = 0;
 
   return true;
@@ -287,7 +289,7 @@ void dice_rolls_page_destroy(void) {
     dice_rolls_screen = NULL;
   }
 
-  memset(rolls_string, 0, sizeof(rolls_string));
+  secure_memzero(rolls_string, sizeof(rolls_string));
   rolls_count = 0;
   total_words = 0;
   min_rolls = 0;
