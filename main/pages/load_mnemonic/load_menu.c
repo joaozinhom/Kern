@@ -1,10 +1,13 @@
 // Load Menu Page
 
 #include "load_menu.h"
+#include "../../core/base43.h"
+#include "../../core/kef.h"
 #include "../../qr/scanner.h"
 #include "../../ui/menu.h"
 #include "../../ui/theme.h"
 #include "../home/home.h"
+#include "../kef_decrypt_page.h"
 #include "../key_confirmation.h"
 #include "manual_input.h"
 #include <lvgl.h>
@@ -26,6 +29,21 @@ static void success_from_key_confirmation_cb(void) {
   home_page_show();
 }
 
+static void return_from_kef_decrypt_cb(void) {
+  kef_decrypt_page_destroy();
+  load_menu_page_show();
+}
+
+static void success_from_kef_decrypt_cb(const uint8_t *data, size_t len) {
+  /* key_confirmation_page_create copies data, so call it before destroy */
+  key_confirmation_page_create(lv_screen_active(),
+                               return_from_key_confirmation_cb,
+                               success_from_key_confirmation_cb,
+                               (const char *)data, len);
+  key_confirmation_page_show();
+  kef_decrypt_page_destroy();
+}
+
 static void return_from_qr_scanner_cb(void) {
   size_t content_len = 0;
   char *scanned_content =
@@ -34,10 +52,37 @@ static void return_from_qr_scanner_cb(void) {
   qr_scanner_page_destroy();
 
   if (scanned_content) {
-    key_confirmation_page_create(
-        lv_screen_active(), return_from_key_confirmation_cb,
-        success_from_key_confirmation_cb, scanned_content, content_len);
-    key_confirmation_page_show();
+    const uint8_t *envelope = (const uint8_t *)scanned_content;
+    size_t envelope_len = content_len;
+    uint8_t *decoded = NULL;
+    bool is_kef = kef_is_envelope(envelope, envelope_len);
+
+    if (!is_kef) {
+      /* Try base43 decode (Krux encodes KEF envelopes as base43 for QR) */
+      size_t decoded_len = 0;
+      if (base43_decode(scanned_content, content_len, &decoded, &decoded_len) &&
+          kef_is_envelope(decoded, decoded_len)) {
+        envelope = decoded;
+        envelope_len = decoded_len;
+        is_kef = true;
+      } else {
+        free(decoded);
+        decoded = NULL;
+      }
+    }
+
+    if (is_kef) {
+      kef_decrypt_page_create(lv_screen_active(), return_from_kef_decrypt_cb,
+                              success_from_kef_decrypt_cb, envelope,
+                              envelope_len);
+      kef_decrypt_page_show();
+    } else {
+      key_confirmation_page_create(
+          lv_screen_active(), return_from_key_confirmation_cb,
+          success_from_key_confirmation_cb, scanned_content, content_len);
+      key_confirmation_page_show();
+    }
+    free(decoded);
     free(scanned_content);
   } else {
     load_menu_page_show();
