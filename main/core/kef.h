@@ -21,18 +21,18 @@
 #include <stdint.h>
 
 /* Version constants */
-#define KEF_V0_ECB_NUL_H16   0
-#define KEF_V1_CBC_NUL_H16   1
-#define KEF_V5_ECB_NUL_E3    5
-#define KEF_V6_ECB_PKCS7_H4  6
+#define KEF_V0_ECB_NUL_H16 0
+#define KEF_V1_CBC_NUL_H16 1
+#define KEF_V5_ECB_NUL_E3 5
+#define KEF_V6_ECB_PKCS7_H4 6
 #define KEF_V7_ECB_PKCS7Z_H4 7
-#define KEF_V10_CBC_NUL_E4   10
+#define KEF_V10_CBC_NUL_E4 10
 #define KEF_V11_CBC_PKCS7_H4 11
 #define KEF_V12_CBC_PKCS7Z_H4 12
-#define KEF_V15_CTR_H4       15
-#define KEF_V16_CTR_Z_H4     16
-#define KEF_V20_GCM_E4       20
-#define KEF_V21_GCM_Z_E4     21
+#define KEF_V15_CTR_H4 15
+#define KEF_V16_CTR_Z_H4 16
+#define KEF_V20_GCM_E4 20
+#define KEF_V21_GCM_Z_E4 21
 
 /* Maximum ID length (stored in 1 byte) */
 #define KEF_MAX_ID_LEN 255
@@ -76,8 +76,8 @@ kef_error_t kef_encrypt(const uint8_t *id, size_t id_len, uint8_t version,
  * out / out_len       — receives heap-allocated plaintext
  */
 kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
-                        const uint8_t *password, size_t pw_len,
-                        uint8_t **out, size_t *out_len);
+                        const uint8_t *password, size_t pw_len, uint8_t **out,
+                        size_t *out_len);
 
 /*
  * Parse header fields without decrypting.

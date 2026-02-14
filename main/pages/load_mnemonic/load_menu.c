@@ -36,10 +36,9 @@ static void return_from_kef_decrypt_cb(void) {
 
 static void success_from_kef_decrypt_cb(const uint8_t *data, size_t len) {
   /* key_confirmation_page_create copies data, so call it before destroy */
-  key_confirmation_page_create(lv_screen_active(),
-                               return_from_key_confirmation_cb,
-                               success_from_key_confirmation_cb,
-                               (const char *)data, len);
+  key_confirmation_page_create(
+      lv_screen_active(), return_from_key_confirmation_cb,
+      success_from_key_confirmation_cb, (const char *)data, len);
   key_confirmation_page_show();
   kef_decrypt_page_destroy();
 }

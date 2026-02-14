@@ -30,8 +30,7 @@
  * Derives key_len bytes from password + salt with given iteration count. */
 int crypto_pbkdf2_sha256(const uint8_t *password, size_t password_len,
                          const uint8_t *salt, size_t salt_len,
-                         uint32_t iterations, uint8_t *key_out,
-                         size_t key_len);
+                         uint32_t iterations, uint8_t *key_out, size_t key_len);
 
 /* --- Hashing --- */
 
@@ -85,8 +84,7 @@ int crypto_aes_gcm_encrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
 int crypto_aes_gcm_decrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
                            const uint8_t *nonce, size_t nonce_len,
                            const uint8_t *input, size_t input_len,
-                           uint8_t *output, const uint8_t *tag,
-                           size_t tag_len);
+                           uint8_t *output, const uint8_t *tag, size_t tag_len);
 
 /* --- Random --- */
 
@@ -97,8 +95,8 @@ void crypto_random_bytes(uint8_t *buf, size_t len);
 
 /* Apply PKCS#7 padding. output must have room for input_len + padding (up to
  * input_len + 16). Returns padded length, or 0 on error. */
-size_t crypto_pkcs7_pad(const uint8_t *input, size_t input_len,
-                        uint8_t *output, size_t output_size);
+size_t crypto_pkcs7_pad(const uint8_t *input, size_t input_len, uint8_t *output,
+                        size_t output_size);
 
 /* Remove PKCS#7 padding in-place. Returns unpadded length, or 0 on error. */
 size_t crypto_pkcs7_unpad(const uint8_t *input, size_t input_len);

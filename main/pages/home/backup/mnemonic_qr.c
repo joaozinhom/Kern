@@ -70,10 +70,8 @@ static char encrypt_kef_id[64] = {0};
 
 /* Keyboard overlay for encryption */
 static lv_obj_t *encrypt_screen = NULL;
-static lv_obj_t *encrypt_textarea = NULL;
-static lv_obj_t *encrypt_keyboard = NULL;
 static lv_obj_t *encrypt_loading_label = NULL;
-static lv_group_t *encrypt_input_group = NULL;
+static ui_text_input_t encrypt_input = {0};
 
 /* Background encryption task */
 static TaskHandle_t encrypt_task_handle = NULL;
@@ -348,19 +346,11 @@ static void destroy_encrypt_overlay(void) {
     encrypt_poll_timer = NULL;
   }
   encrypt_done = false;
-  if (encrypt_input_group) {
-    lv_group_del(encrypt_input_group);
-    encrypt_input_group = NULL;
-  }
-  if (encrypt_keyboard) {
-    lv_obj_del(encrypt_keyboard);
-    encrypt_keyboard = NULL;
-  }
+  ui_text_input_destroy(&encrypt_input);
   if (encrypt_screen) {
     lv_obj_del(encrypt_screen);
     encrypt_screen = NULL;
   }
-  encrypt_textarea = NULL;
   encrypt_loading_label = NULL;
 
   SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
@@ -370,19 +360,13 @@ static void destroy_encrypt_overlay(void) {
 }
 
 static void show_encrypt_input(void) {
-  if (encrypt_textarea)
-    lv_obj_clear_flag(encrypt_textarea, LV_OBJ_FLAG_HIDDEN);
-  if (encrypt_keyboard)
-    lv_obj_clear_flag(encrypt_keyboard, LV_OBJ_FLAG_HIDDEN);
+  ui_text_input_show(&encrypt_input);
   if (encrypt_loading_label)
     lv_obj_add_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void show_encrypt_loading(void) {
-  if (encrypt_textarea)
-    lv_obj_add_flag(encrypt_textarea, LV_OBJ_FLAG_HIDDEN);
-  if (encrypt_keyboard)
-    lv_obj_add_flag(encrypt_keyboard, LV_OBJ_FLAG_HIDDEN);
+  ui_text_input_hide(&encrypt_input);
   if (encrypt_loading_label)
     lv_obj_clear_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
 }
@@ -399,11 +383,11 @@ static void encrypt_task(void *arg) {
     encrypt_envelope_len = 0;
   }
 
-  encrypt_result = kef_encrypt(
-      (const uint8_t *)encrypt_kef_id, strlen(encrypt_kef_id), KEF_V20_GCM_E4,
-      encrypt_key_copy, encrypt_key_copy_len, KEF_ITERATIONS,
-      compact_seedqr_data, compact_seedqr_len, &encrypt_envelope,
-      &encrypt_envelope_len);
+  encrypt_result =
+      kef_encrypt((const uint8_t *)encrypt_kef_id, strlen(encrypt_kef_id),
+                  KEF_V20_GCM_E4, encrypt_key_copy, encrypt_key_copy_len,
+                  KEF_ITERATIONS, compact_seedqr_data, compact_seedqr_len,
+                  &encrypt_envelope, &encrypt_envelope_len);
 
   SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
   encrypt_key_copy_len = 0;
@@ -426,7 +410,8 @@ static void encrypt_poll_timer_cb(lv_timer_t *timer) {
   if (encrypt_result == KEF_OK) {
     char *b43 = NULL;
     size_t b43_len = 0;
-    if (!base43_encode(encrypt_envelope, encrypt_envelope_len, &b43, &b43_len)) {
+    if (!base43_encode(encrypt_envelope, encrypt_envelope_len, &b43,
+                       &b43_len)) {
       destroy_encrypt_overlay();
       dialog_show_error("Encoding failed", NULL, 0);
       current_qr_type = previous_qr_type;
@@ -448,14 +433,14 @@ static void encrypt_poll_timer_cb(lv_timer_t *timer) {
 
   /* Error — show keyboard for retry */
   show_encrypt_input();
-  if (encrypt_textarea)
-    lv_textarea_set_text(encrypt_textarea, "");
+  if (encrypt_input.textarea)
+    lv_textarea_set_text(encrypt_input.textarea, "");
   dialog_show_error(kef_error_str(encrypt_result), NULL, 0);
 }
 
 static void encrypt_keyboard_ready_cb(lv_event_t *e) {
   (void)e;
-  const char *text = lv_textarea_get_text(encrypt_textarea);
+  const char *text = lv_textarea_get_text(encrypt_input.textarea);
   if (!text || text[0] == '\0')
     return;
 
@@ -465,7 +450,7 @@ static void encrypt_keyboard_ready_cb(lv_event_t *e) {
     return;
   memcpy(encrypt_key_copy, text, encrypt_key_copy_len);
 
-  lv_textarea_set_text(encrypt_textarea, "");
+  lv_textarea_set_text(encrypt_input.textarea, "");
   show_encrypt_loading();
 
   encrypt_done = false;
@@ -501,23 +486,8 @@ static void create_encrypt_keyboard_overlay(const char *title,
   theme_create_page_title(encrypt_screen, title);
   ui_create_back_button(encrypt_screen, cancel_encrypt_flow);
 
-  encrypt_textarea = lv_textarea_create(encrypt_screen);
-  lv_obj_set_size(encrypt_textarea, LV_PCT(90), 50);
-  lv_obj_align(encrypt_textarea, LV_ALIGN_TOP_MID, 0, 140);
-  lv_textarea_set_one_line(encrypt_textarea, true);
-  lv_textarea_set_password_mode(encrypt_textarea, password_mode);
-  lv_textarea_set_placeholder_text(encrypt_textarea, placeholder);
-  lv_obj_set_style_text_font(encrypt_textarea, theme_font_small(), 0);
-  lv_obj_set_style_bg_color(encrypt_textarea, panel_color(), 0);
-  lv_obj_set_style_text_color(encrypt_textarea, main_color(), 0);
-  lv_obj_set_style_border_color(encrypt_textarea, secondary_color(), 0);
-  lv_obj_set_style_border_width(encrypt_textarea, 1, 0);
-  lv_obj_set_style_bg_color(encrypt_textarea, highlight_color(), LV_PART_CURSOR);
-  lv_obj_set_style_bg_opa(encrypt_textarea, LV_OPA_COVER, LV_PART_CURSOR);
-
-  encrypt_input_group = lv_group_create();
-  lv_group_add_obj(encrypt_input_group, encrypt_textarea);
-  lv_group_focus_obj(encrypt_textarea);
+  ui_text_input_create(&encrypt_input, encrypt_screen, placeholder,
+                       password_mode, ready_cb);
 
   if (with_loading) {
     encrypt_loading_label = lv_label_create(encrypt_screen);
@@ -527,33 +497,11 @@ static void create_encrypt_keyboard_overlay(const char *title,
     lv_obj_align(encrypt_loading_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
   }
-
-  encrypt_keyboard = lv_keyboard_create(lv_screen_active());
-  lv_obj_set_size(encrypt_keyboard, LV_HOR_RES, LV_VER_RES * 55 / 100);
-  lv_obj_align(encrypt_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_keyboard_set_textarea(encrypt_keyboard, encrypt_textarea);
-  lv_keyboard_set_mode(encrypt_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_obj_add_event_cb(encrypt_keyboard, ready_cb, LV_EVENT_READY, NULL);
-
-  lv_obj_set_style_bg_color(encrypt_keyboard, lv_color_black(), 0);
-  lv_obj_set_style_border_width(encrypt_keyboard, 0, 0);
-  lv_obj_set_style_pad_all(encrypt_keyboard, 4, 0);
-  lv_obj_set_style_pad_gap(encrypt_keyboard, 6, 0);
-  lv_obj_set_style_bg_color(encrypt_keyboard, disabled_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(encrypt_keyboard, main_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(encrypt_keyboard, theme_font_small(),
-                             LV_PART_ITEMS);
-  lv_obj_set_style_border_width(encrypt_keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(encrypt_keyboard, 6, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(encrypt_keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(encrypt_keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_CHECKED);
 }
 
 static void id_keyboard_ready_cb(lv_event_t *e) {
   (void)e;
-  const char *text = lv_textarea_get_text(encrypt_textarea);
+  const char *text = lv_textarea_get_text(encrypt_input.textarea);
   if (!text || text[0] == '\0')
     return;
 

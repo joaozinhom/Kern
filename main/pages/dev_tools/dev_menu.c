@@ -62,7 +62,7 @@ static void decode_snapshots_cb(void) {
 #else /* !K_QUIRC_DEBUG */
 
 static bool parse_pgm_header(const uint8_t *data, size_t len, int *width,
-                              int *height, size_t *data_offset) {
+                             int *height, size_t *data_offset) {
   if (len < 10 || data[0] != 'P' || data[1] != '5')
     return false;
 

@@ -8,8 +8,8 @@
  */
 
 #include "kef.h"
-#include "crypto_utils.h"
 #include "../utils/secure_mem.h"
+#include "crypto_utils.h"
 
 /* Raw deflate compress / decompress (wbits = 10) */
 #include "../../components/bbqr/src/miniz.h"
@@ -146,8 +146,7 @@ static bool has_duplicate_blocks(const uint8_t *data, size_t len) {
   for (size_t i = 0; i < nblocks; i++) {
     for (size_t j = i + 1; j < nblocks; j++) {
       if (memcmp(data + i * CRYPTO_AES_BLOCK_SIZE,
-                 data + j * CRYPTO_AES_BLOCK_SIZE,
-                 CRYPTO_AES_BLOCK_SIZE) == 0)
+                 data + j * CRYPTO_AES_BLOCK_SIZE, CRYPTO_AES_BLOCK_SIZE) == 0)
         return true;
     }
   }
@@ -206,8 +205,9 @@ static kef_error_t apply_padding(kef_pad_t pad, const uint8_t *in,
                                  size_t *out_len) {
   switch (pad) {
   case PAD_NUL: {
-    size_t padded = ((in_len + CRYPTO_AES_BLOCK_SIZE - 1) / CRYPTO_AES_BLOCK_SIZE) *
-                    CRYPTO_AES_BLOCK_SIZE;
+    size_t padded =
+        ((in_len + CRYPTO_AES_BLOCK_SIZE - 1) / CRYPTO_AES_BLOCK_SIZE) *
+        CRYPTO_AES_BLOCK_SIZE;
     if (padded == 0)
       padded = CRYPTO_AES_BLOCK_SIZE;
     uint8_t *buf = calloc(padded, 1); /* zeros = NUL padding */
@@ -366,9 +366,9 @@ kef_error_t kef_encrypt(const uint8_t *id, size_t id_len, uint8_t version,
   uint8_t auth_buf[CRYPTO_SHA256_SIZE];
   uint8_t *compressed = NULL;
   size_t compressed_len = 0;
-  uint8_t *pre_pad = NULL;   /* data + hidden auth before padding */
+  uint8_t *pre_pad = NULL; /* data + hidden auth before padding */
   size_t pre_pad_len = 0;
-  uint8_t *padded = NULL;    /* after padding, ready for cipher */
+  uint8_t *padded = NULL; /* after padding, ready for cipher */
   size_t padded_len = 0;
   uint8_t *envelope = NULL;
   int rc;
@@ -540,8 +540,8 @@ cleanup:
 /* ------------------------------------------------------------------ */
 
 kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
-                        const uint8_t *password, size_t pw_len,
-                        uint8_t **out, size_t *out_len) {
+                        const uint8_t *password, size_t pw_len, uint8_t **out,
+                        size_t *out_len) {
   kef_error_t err = KEF_ERR_CRYPTO;
   uint8_t key[CRYPTO_AES_KEY_SIZE];
   uint8_t *decrypted = NULL;
@@ -549,8 +549,7 @@ kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
   int rc;
 
   /* --- Validate -------------------------------------------------- */
-  if (!envelope || env_len == 0 || !password || pw_len == 0 || !out ||
-      !out_len)
+  if (!envelope || env_len == 0 || !password || pw_len == 0 || !out || !out_len)
     return KEF_ERR_INVALID_ARG;
 
   /* --- Parse header ---------------------------------------------- */
@@ -558,8 +557,8 @@ kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
   size_t id_len;
   uint8_t version;
   uint32_t iterations;
-  err = kef_parse_header(envelope, env_len, &id, &id_len, &version,
-                         &iterations);
+  err =
+      kef_parse_header(envelope, env_len, &id, &id_len, &version, &iterations);
   if (err != KEF_OK)
     return err;
 
@@ -580,7 +579,8 @@ kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
 
   /* Extract exposed auth from end of envelope */
   const uint8_t *exposed_auth = NULL;
-  bool has_exposed = (vi->auth_type == AUTH_EXPOSED || vi->auth_type == AUTH_GCM);
+  bool has_exposed =
+      (vi->auth_type == AUTH_EXPOSED || vi->auth_type == AUTH_GCM);
   if (has_exposed) {
     if (data_end < data_start + vi->auth_size)
       return KEF_ERR_ENVELOPE_TOO_SHORT;
@@ -755,9 +755,10 @@ bool kef_is_envelope(const uint8_t *data, size_t len) {
   size_t min_cipher = (vi->mode == MODE_ECB || vi->mode == MODE_CBC)
                           ? CRYPTO_AES_BLOCK_SIZE
                           : 1;
-  bool has_exposed = (vi->auth_type == AUTH_EXPOSED || vi->auth_type == AUTH_GCM);
-  size_t min_total =
-      header_size + vi->iv_size + min_cipher + (has_exposed ? vi->auth_size : 0);
+  bool has_exposed =
+      (vi->auth_type == AUTH_EXPOSED || vi->auth_type == AUTH_GCM);
+  size_t min_total = header_size + vi->iv_size + min_cipher +
+                     (has_exposed ? vi->auth_size : 0);
 
   return len >= min_total;
 }

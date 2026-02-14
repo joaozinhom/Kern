@@ -24,10 +24,8 @@
 #define DECRYPT_TASK_STACK_SIZE 8192
 
 static lv_obj_t *kef_screen = NULL;
-static lv_obj_t *textarea = NULL;
-static lv_obj_t *keyboard = NULL;
 static lv_obj_t *loading_label = NULL;
-static lv_group_t *input_group = NULL;
+static ui_text_input_t text_input = {0};
 static lv_timer_t *poll_timer = NULL;
 
 static void (*return_callback)(void) = NULL;
@@ -46,19 +44,13 @@ static kef_error_t decrypt_result = KEF_OK;
 static TaskHandle_t decrypt_task_handle = NULL;
 
 static void show_input(void) {
-  if (textarea)
-    lv_obj_clear_flag(textarea, LV_OBJ_FLAG_HIDDEN);
-  if (keyboard)
-    lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  ui_text_input_show(&text_input);
   if (loading_label)
     lv_obj_add_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void show_loading(void) {
-  if (textarea)
-    lv_obj_add_flag(textarea, LV_OBJ_FLAG_HIDDEN);
-  if (keyboard)
-    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  ui_text_input_hide(&text_input);
   if (loading_label)
     lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
 }
@@ -77,9 +69,8 @@ static void decrypt_task(void *arg) {
     decrypted_len = 0;
   }
 
-  decrypt_result =
-      kef_decrypt(envelope_copy, envelope_copy_len, key_copy, key_copy_len,
-                  &decrypted_data, &decrypted_len);
+  decrypt_result = kef_decrypt(envelope_copy, envelope_copy_len, key_copy,
+                               key_copy_len, &decrypted_data, &decrypted_len);
 
   /* Zero key immediately after use */
   SECURE_FREE_BUFFER(key_copy, key_copy_len);
@@ -111,8 +102,8 @@ static void poll_timer_cb(lv_timer_t *timer) {
 
   /* Show error and let user retry */
   show_input();
-  if (textarea)
-    lv_textarea_set_text(textarea, "");
+  if (text_input.textarea)
+    lv_textarea_set_text(text_input.textarea, "");
 
   if (decrypt_result == KEF_ERR_AUTH) {
     dialog_show_error("Wrong key", NULL, 0);
@@ -123,7 +114,7 @@ static void poll_timer_cb(lv_timer_t *timer) {
 
 static void keyboard_ready_cb(lv_event_t *e) {
   (void)e;
-  const char *text = lv_textarea_get_text(textarea);
+  const char *text = lv_textarea_get_text(text_input.textarea);
   if (!text || text[0] == '\0')
     return;
 
@@ -134,7 +125,7 @@ static void keyboard_ready_cb(lv_event_t *e) {
     return;
   memcpy(key_copy, text, key_copy_len);
 
-  lv_textarea_set_text(textarea, "");
+  lv_textarea_set_text(text_input.textarea, "");
   show_loading();
 
   /* Launch decryption on CPU 1 to keep LVGL (CPU 0) responsive */
@@ -178,13 +169,18 @@ void kef_decrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
   size_t id_len = 0;
   uint8_t version;
   uint32_t iterations;
+  const char *prefix = "Enter Key for: ";
   char title[64] = "Enter Key";
   if (kef_parse_header(envelope, envelope_len, &id, &id_len, &version,
                        &iterations) == KEF_OK &&
       id_len > 0) {
-    size_t copy_len = id_len < sizeof(title) - 1 ? id_len : sizeof(title) - 1;
-    memcpy(title, id, copy_len);
-    title[copy_len] = '\0';
+    size_t prefix_len = strlen(prefix);
+    size_t copy_len = id_len < sizeof(title) - prefix_len - 1
+                          ? id_len
+                          : sizeof(title) - prefix_len - 1;
+    memcpy(title, prefix, prefix_len);
+    memcpy(title + prefix_len, id, copy_len);
+    title[prefix_len + copy_len] = '\0';
   }
 
   /* Screen */
@@ -199,24 +195,8 @@ void kef_decrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
   /* Back button */
   ui_create_back_button(kef_screen, back_btn_cb);
 
-  /* Text area (masked input) */
-  textarea = lv_textarea_create(kef_screen);
-  lv_obj_set_size(textarea, LV_PCT(90), 50);
-  lv_obj_align(textarea, LV_ALIGN_TOP_MID, 0, 140);
-  lv_textarea_set_one_line(textarea, true);
-  lv_textarea_set_password_mode(textarea, true);
-  lv_textarea_set_placeholder_text(textarea, "key");
-  lv_obj_set_style_text_font(textarea, theme_font_small(), 0);
-  lv_obj_set_style_bg_color(textarea, panel_color(), 0);
-  lv_obj_set_style_text_color(textarea, main_color(), 0);
-  lv_obj_set_style_border_color(textarea, secondary_color(), 0);
-  lv_obj_set_style_border_width(textarea, 1, 0);
-  lv_obj_set_style_bg_color(textarea, highlight_color(), LV_PART_CURSOR);
-  lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, LV_PART_CURSOR);
-
-  input_group = lv_group_create();
-  lv_group_add_obj(input_group, textarea);
-  lv_group_focus_obj(textarea);
+  /* Text input (textarea + eye toggle + keyboard) */
+  ui_text_input_create(&text_input, kef_screen, "key", true, keyboard_ready_cb);
 
   /* Loading label (hidden initially) */
   loading_label = lv_label_create(kef_screen);
@@ -225,43 +205,20 @@ void kef_decrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
   lv_obj_set_style_text_color(loading_label, main_color(), 0);
   lv_obj_align(loading_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_add_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
-
-  /* Keyboard */
-  keyboard = lv_keyboard_create(lv_screen_active());
-  lv_obj_set_size(keyboard, LV_HOR_RES, LV_VER_RES * 55 / 100);
-  lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_keyboard_set_textarea(keyboard, textarea);
-  lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_obj_add_event_cb(keyboard, keyboard_ready_cb, LV_EVENT_READY, NULL);
-
-  /* Keyboard dark theme */
-  lv_obj_set_style_bg_color(keyboard, lv_color_black(), 0);
-  lv_obj_set_style_border_width(keyboard, 0, 0);
-  lv_obj_set_style_pad_all(keyboard, 4, 0);
-  lv_obj_set_style_pad_gap(keyboard, 6, 0);
-  lv_obj_set_style_bg_color(keyboard, disabled_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, main_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(keyboard, theme_font_small(), LV_PART_ITEMS);
-  lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 6, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_CHECKED);
 }
 
 void kef_decrypt_page_show(void) {
   if (kef_screen)
     lv_obj_clear_flag(kef_screen, LV_OBJ_FLAG_HIDDEN);
-  if (keyboard)
-    lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  if (text_input.keyboard)
+    lv_obj_clear_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 void kef_decrypt_page_hide(void) {
   if (kef_screen)
     lv_obj_add_flag(kef_screen, LV_OBJ_FLAG_HIDDEN);
-  if (keyboard)
-    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  if (text_input.keyboard)
+    lv_obj_add_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 void kef_decrypt_page_destroy(void) {
@@ -274,19 +231,11 @@ void kef_decrypt_page_destroy(void) {
     poll_timer = NULL;
   }
   decrypt_done = false;
-  if (input_group) {
-    lv_group_del(input_group);
-    input_group = NULL;
-  }
-  if (keyboard) {
-    lv_obj_del(keyboard);
-    keyboard = NULL;
-  }
+  ui_text_input_destroy(&text_input);
   if (kef_screen) {
     lv_obj_del(kef_screen);
     kef_screen = NULL;
   }
-  textarea = NULL;
   loading_label = NULL;
 
   SECURE_FREE_BUFFER(envelope_copy, envelope_copy_len);

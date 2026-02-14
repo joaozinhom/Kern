@@ -6,9 +6,7 @@
 #include <stdio.h>
 
 static lv_obj_t *passphrase_screen = NULL;
-static lv_obj_t *textarea = NULL;
-static lv_obj_t *keyboard = NULL;
-static lv_group_t *input_group = NULL;
+static ui_text_input_t text_input = {0};
 static void (*return_callback)(void) = NULL;
 static passphrase_success_callback_t success_callback = NULL;
 
@@ -27,14 +25,14 @@ static void back_btn_cb(lv_event_t *e) {
 static void confirm_passphrase_cb(bool result, void *user_data) {
   (void)user_data;
   if (result && success_callback)
-    success_callback(lv_textarea_get_text(textarea));
+    success_callback(lv_textarea_get_text(text_input.textarea));
 }
 
 static void keyboard_ready_cb(lv_event_t *e) {
   (void)e;
   char prompt[128];
   snprintf(prompt, sizeof(prompt), "Confirm passphrase:\n\"%s\"",
-           lv_textarea_get_text(textarea));
+           lv_textarea_get_text(text_input.textarea));
   dialog_show_confirm(prompt, confirm_passphrase_cb, NULL,
                       DIALOG_STYLE_OVERLAY);
 }
@@ -57,72 +55,31 @@ void passphrase_page_create(lv_obj_t *parent, void (*return_cb)(void),
   // Back button
   ui_create_back_button(passphrase_screen, back_btn_cb);
 
-  // Text area
-  textarea = lv_textarea_create(passphrase_screen);
-  lv_obj_set_size(textarea, LV_PCT(90), 50);
-  lv_obj_align(textarea, LV_ALIGN_TOP_MID, 0, 140);
-  lv_textarea_set_one_line(textarea, true);
-  lv_textarea_set_placeholder_text(textarea, "passphrase");
-  lv_obj_set_style_text_font(textarea, theme_font_small(), 0);
-  lv_obj_set_style_bg_color(textarea, panel_color(), 0);
-  lv_obj_set_style_text_color(textarea, main_color(), 0);
-  lv_obj_set_style_border_color(textarea, secondary_color(), 0);
-  lv_obj_set_style_border_width(textarea, 1, 0);
-  lv_obj_set_style_bg_color(textarea, highlight_color(), LV_PART_CURSOR);
-  lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, LV_PART_CURSOR);
-
-  input_group = lv_group_create();
-  lv_group_add_obj(input_group, textarea);
-  lv_group_focus_obj(textarea);
-
-  // Keyboard
-  keyboard = lv_keyboard_create(lv_screen_active());
-  lv_obj_set_size(keyboard, LV_HOR_RES, LV_VER_RES * 55 / 100);
-  lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_keyboard_set_textarea(keyboard, textarea);
-  lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_obj_add_event_cb(keyboard, keyboard_ready_cb, LV_EVENT_READY, NULL);
-
-  // Keyboard dark theme
-  lv_obj_set_style_bg_color(keyboard, lv_color_black(), 0);
-  lv_obj_set_style_border_width(keyboard, 0, 0);
-  lv_obj_set_style_pad_all(keyboard, 4, 0);
-  lv_obj_set_style_pad_gap(keyboard, 6, 0);
-  lv_obj_set_style_bg_color(keyboard, disabled_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, main_color(), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(keyboard, theme_font_small(), LV_PART_ITEMS);
-  lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 6, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(keyboard, highlight_color(),
-                            LV_PART_ITEMS | LV_STATE_CHECKED);
+  // Text input (textarea + keyboard)
+  ui_text_input_create(&text_input, passphrase_screen, "passphrase", false,
+                       keyboard_ready_cb);
 }
 
 void passphrase_page_show(void) {
   if (passphrase_screen)
     lv_obj_clear_flag(passphrase_screen, LV_OBJ_FLAG_HIDDEN);
+  if (text_input.keyboard)
+    lv_obj_clear_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 void passphrase_page_hide(void) {
   if (passphrase_screen)
     lv_obj_add_flag(passphrase_screen, LV_OBJ_FLAG_HIDDEN);
+  if (text_input.keyboard)
+    lv_obj_add_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 void passphrase_page_destroy(void) {
-  if (input_group) {
-    lv_group_del(input_group);
-    input_group = NULL;
-  }
-  if (keyboard) {
-    lv_obj_del(keyboard);
-    keyboard = NULL;
-  }
+  ui_text_input_destroy(&text_input);
   if (passphrase_screen) {
     lv_obj_del(passphrase_screen);
     passphrase_screen = NULL;
   }
-  textarea = NULL;
   return_callback = NULL;
   success_callback = NULL;
 }

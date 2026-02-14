@@ -145,7 +145,7 @@ static inline uint16_t grayscale_to_rgb565(uint8_t gray) {
 }
 
 static bool parse_pgm_header(const uint8_t *data, size_t len, int *width,
-                              int *height, size_t *data_offset) {
+                             int *height, size_t *data_offset) {
   if (len < 10 || data[0] != 'P' || data[1] != '5')
     return false;
 
@@ -348,8 +348,7 @@ static void process_and_display_file(int index) {
                           num_grids, num_capstones, thr_off);
   } else {
     lv_label_set_text_fmt(
-        info_label,
-        "%s\nNo QR decoded\n%.1f ms  grids:%d  caps:%d  thr_off:%d",
+        info_label, "%s\nNo QR decoded\n%.1f ms  grids:%d  caps:%d  thr_off:%d",
         pgm_files[index], elapsed_ms, num_grids, num_capstones, thr_off);
   }
 
@@ -427,8 +426,7 @@ void decode_snapshots_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
 
   /* Navigation counter */
   nav_label = theme_create_label(page_screen, "", true);
-  lv_obj_align(nav_label, LV_ALIGN_TOP_RIGHT, -10,
-               theme_get_default_padding());
+  lv_obj_align(nav_label, LV_ALIGN_TOP_RIGHT, -10, theme_get_default_padding());
 
   /* Original image (left) */
   original_img = lv_img_create(page_screen);

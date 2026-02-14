@@ -18,8 +18,8 @@ int crypto_pbkdf2_sha256(const uint8_t *password, size_t password_len,
   }
 
   int ret = mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, password,
-                                           password_len, salt, salt_len,
-                                           iterations, key_len, key_out);
+                                          password_len, salt, salt_len,
+                                          iterations, key_len, key_out);
   return (ret == 0) ? CRYPTO_OK : CRYPTO_ERR_INTERNAL;
 }
 
@@ -54,8 +54,8 @@ int crypto_aes_ecb_encrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
   }
 
   for (size_t i = 0; i < input_len; i += CRYPTO_AES_BLOCK_SIZE) {
-    ret = mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, input + i,
-                                output + i);
+    ret =
+        mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, input + i, output + i);
     if (ret != 0) {
       mbedtls_aes_free(&ctx);
       return CRYPTO_ERR_INTERNAL;
@@ -84,8 +84,8 @@ int crypto_aes_ecb_decrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
   }
 
   for (size_t i = 0; i < input_len; i += CRYPTO_AES_BLOCK_SIZE) {
-    ret = mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_DECRYPT, input + i,
-                                output + i);
+    ret =
+        mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_DECRYPT, input + i, output + i);
     if (ret != 0) {
       mbedtls_aes_free(&ctx);
       return CRYPTO_ERR_INTERNAL;
@@ -121,7 +121,7 @@ int crypto_aes_cbc_encrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
   }
 
   ret = mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_ENCRYPT, input_len, iv_copy,
-                               input, output);
+                              input, output);
 
   mbedtls_aes_free(&ctx);
   secure_memzero(iv_copy, sizeof(iv_copy));
@@ -150,7 +150,7 @@ int crypto_aes_cbc_decrypt(const uint8_t key[CRYPTO_AES_KEY_SIZE],
   }
 
   ret = mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_DECRYPT, input_len, iv_copy,
-                               input, output);
+                              input, output);
 
   mbedtls_aes_free(&ctx);
   secure_memzero(iv_copy, sizeof(iv_copy));
@@ -185,7 +185,7 @@ int crypto_aes_ctr(const uint8_t key[CRYPTO_AES_KEY_SIZE],
   }
 
   ret = mbedtls_aes_crypt_ctr(&ctx, input_len, &nc_off, nonce_counter,
-                               stream_block, input, output);
+                              stream_block, input, output);
 
   mbedtls_aes_free(&ctx);
   secure_memzero(nonce_counter, sizeof(nonce_counter));
@@ -260,8 +260,8 @@ void crypto_random_bytes(uint8_t *buf, size_t len) {
 
 /* --- Padding --- */
 
-size_t crypto_pkcs7_pad(const uint8_t *input, size_t input_len,
-                        uint8_t *output, size_t output_size) {
+size_t crypto_pkcs7_pad(const uint8_t *input, size_t input_len, uint8_t *output,
+                        size_t output_size) {
   if (!input || !output) {
     return 0;
   }
