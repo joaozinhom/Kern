@@ -58,3 +58,6 @@ __pycache__/
 AGENTS.md
 CLAUDE.md
 .claude/
+esp-idf/
+.idf-tools/
+.idf-venv/
