@@ -2,16 +2,12 @@
 
 #include "mnemonic_qr.h"
 #include "../../../core/base43.h"
-#include "../../../core/kef.h"
 #include "../../../core/key.h"
 #include "../../../qr/encoder.h"
 #include "../../../ui/dialog.h"
 #include "../../../ui/input_helpers.h"
 #include "../../../ui/theme.h"
-#include <esp_task_wdt.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/idf_additions.h>
-#include <freertos/task.h>
+#include "../../kef_encrypt_page.h"
 #include <lvgl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,9 +20,6 @@
 #define LEGEND_SIZE 28
 #define LABEL_PAD 6
 #define SHADE_OPACITY LV_OPA_70
-
-#define KEF_ITERATIONS 100000
-#define ENCRYPT_TASK_STACK_SIZE 8192
 
 static int get_grid_interval(int modules) {
   return (modules == 21) ? GRID_INTERVAL_21 : GRID_INTERVAL_DEFAULT;
@@ -66,24 +59,6 @@ static qr_encode_result_t last_qr_result = {0, 0};
 /* Encrypted QR state */
 static char *encrypted_qr_data = NULL;
 static qr_type_t previous_qr_type = QR_TYPE_PLAINTEXT;
-static char encrypt_kef_id[64] = {0};
-
-/* Keyboard overlay for encryption */
-static lv_obj_t *encrypt_screen = NULL;
-static lv_obj_t *encrypt_loading_label = NULL;
-static ui_text_input_t encrypt_input = {0};
-
-/* Background encryption task */
-static TaskHandle_t encrypt_task_handle = NULL;
-static lv_timer_t *encrypt_poll_timer = NULL;
-static volatile bool encrypt_done = false;
-static kef_error_t encrypt_result = KEF_OK;
-
-/* Key material for encryption task */
-static uint8_t *encrypt_key_copy = NULL;
-static size_t encrypt_key_copy_len = 0;
-static uint8_t *encrypt_envelope = NULL;
-static size_t encrypt_envelope_len = 0;
 
 /* Forward declaration */
 static void update_qr_code(void);
@@ -334,217 +309,48 @@ static void grid_btn_cb(lv_event_t *e) {
   }
 }
 
-/* ---------- Encrypted QR flow ---------- */
+/* ---------- Encrypted QR flow (via kef_encrypt_page) ---------- */
 
-static void destroy_encrypt_overlay(void) {
-  if (encrypt_task_handle) {
-    vTaskDelete(encrypt_task_handle);
-    encrypt_task_handle = NULL;
-  }
-  if (encrypt_poll_timer) {
-    lv_timer_del(encrypt_poll_timer);
-    encrypt_poll_timer = NULL;
-  }
-  encrypt_done = false;
-  ui_text_input_destroy(&encrypt_input);
-  if (encrypt_screen) {
-    lv_obj_del(encrypt_screen);
-    encrypt_screen = NULL;
-  }
-  encrypt_loading_label = NULL;
-
-  SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
-  encrypt_key_copy_len = 0;
-  SECURE_FREE_BUFFER(encrypt_envelope, encrypt_envelope_len);
-  encrypt_envelope_len = 0;
-}
-
-static void show_encrypt_input(void) {
-  ui_text_input_show(&encrypt_input);
-  if (encrypt_loading_label)
-    lv_obj_add_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
-}
-
-static void show_encrypt_loading(void) {
-  ui_text_input_hide(&encrypt_input);
-  if (encrypt_loading_label)
-    lv_obj_clear_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
-}
-
-/* Runs on CPU 1 — does NOT touch LVGL */
-static void encrypt_task(void *arg) {
-  (void)arg;
-
-  TaskHandle_t idle1 = xTaskGetIdleTaskHandleForCore(1);
-  esp_task_wdt_delete(idle1);
-
-  if (encrypt_envelope) {
-    SECURE_FREE_BUFFER(encrypt_envelope, encrypt_envelope_len);
-    encrypt_envelope_len = 0;
-  }
-
-  encrypt_result =
-      kef_encrypt((const uint8_t *)encrypt_kef_id, strlen(encrypt_kef_id),
-                  KEF_V20_GCM_E4, encrypt_key_copy, encrypt_key_copy_len,
-                  KEF_ITERATIONS, compact_seedqr_data, compact_seedqr_len,
-                  &encrypt_envelope, &encrypt_envelope_len);
-
-  SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
-  encrypt_key_copy_len = 0;
-
-  esp_task_wdt_add(idle1);
-
-  encrypt_done = true;
-  vTaskDelete(NULL);
-}
-
-static void encrypt_poll_timer_cb(lv_timer_t *timer) {
-  (void)timer;
-  if (!encrypt_done)
-    return;
-
-  lv_timer_del(encrypt_poll_timer);
-  encrypt_poll_timer = NULL;
-  encrypt_task_handle = NULL;
-
-  if (encrypt_result == KEF_OK) {
-    char *b43 = NULL;
-    size_t b43_len = 0;
-    if (!base43_encode(encrypt_envelope, encrypt_envelope_len, &b43,
-                       &b43_len)) {
-      destroy_encrypt_overlay();
-      dialog_show_error("Encoding failed", NULL, 0);
-      current_qr_type = previous_qr_type;
-      lv_dropdown_set_selected(qr_type_dropdown, (uint32_t)current_qr_type);
-      return;
-    }
-
-    SECURE_FREE_BUFFER(encrypt_envelope, encrypt_envelope_len);
-    encrypt_envelope_len = 0;
-    SECURE_FREE_STRING(encrypted_qr_data);
-    encrypted_qr_data = b43;
-
-    destroy_encrypt_overlay();
-    current_qr_type = QR_TYPE_ENCRYPTED;
-    lv_dropdown_set_selected(qr_type_dropdown, 3);
-    update_qr_code();
-    return;
-  }
-
-  /* Error — show keyboard for retry */
-  show_encrypt_input();
-  if (encrypt_input.textarea)
-    lv_textarea_set_text(encrypt_input.textarea, "");
-  dialog_show_error(kef_error_str(encrypt_result), NULL, 0);
-}
-
-static void encrypt_keyboard_ready_cb(lv_event_t *e) {
-  (void)e;
-  const char *text = lv_textarea_get_text(encrypt_input.textarea);
-  if (!text || text[0] == '\0')
-    return;
-
-  encrypt_key_copy_len = strlen(text);
-  encrypt_key_copy = malloc(encrypt_key_copy_len);
-  if (!encrypt_key_copy)
-    return;
-  memcpy(encrypt_key_copy, text, encrypt_key_copy_len);
-
-  lv_textarea_set_text(encrypt_input.textarea, "");
-  show_encrypt_loading();
-
-  encrypt_done = false;
-  if (xTaskCreatePinnedToCore(encrypt_task, "kef_enc", ENCRYPT_TASK_STACK_SIZE,
-                              NULL, 5, &encrypt_task_handle, 1) != pdPASS) {
-    SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
-    encrypt_key_copy_len = 0;
-    show_encrypt_input();
-    dialog_show_error("Task creation failed", NULL, 0);
-    return;
-  }
-
-  encrypt_poll_timer = lv_timer_create(encrypt_poll_timer_cb, 100, NULL);
-}
-
-static void cancel_encrypt_flow(lv_event_t *e) {
-  (void)e;
-  destroy_encrypt_overlay();
+static void encrypt_return_cb(void) {
+  kef_encrypt_page_destroy();
   current_qr_type = previous_qr_type;
   lv_dropdown_set_selected(qr_type_dropdown, (uint32_t)current_qr_type);
 }
 
-static void create_encrypt_keyboard_overlay(const char *title,
-                                            const char *placeholder,
-                                            bool password_mode,
-                                            bool with_loading,
-                                            lv_event_cb_t ready_cb) {
-  encrypt_screen = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(encrypt_screen, LV_PCT(100), LV_PCT(100));
-  theme_apply_screen(encrypt_screen);
-  lv_obj_clear_flag(encrypt_screen, LV_OBJ_FLAG_SCROLLABLE);
-
-  theme_create_page_title(encrypt_screen, title);
-  ui_create_back_button(encrypt_screen, cancel_encrypt_flow);
-
-  ui_text_input_create(&encrypt_input, encrypt_screen, placeholder,
-                       password_mode, ready_cb);
-
-  if (with_loading) {
-    encrypt_loading_label = lv_label_create(encrypt_screen);
-    lv_label_set_text(encrypt_loading_label, "Encrypting...");
-    lv_obj_set_style_text_font(encrypt_loading_label, theme_font_small(), 0);
-    lv_obj_set_style_text_color(encrypt_loading_label, main_color(), 0);
-    lv_obj_align(encrypt_loading_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(encrypt_loading_label, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-static void id_keyboard_ready_cb(lv_event_t *e) {
-  (void)e;
-  const char *text = lv_textarea_get_text(encrypt_input.textarea);
-  if (!text || text[0] == '\0')
+static void encrypt_success_cb(const char *id, const uint8_t *envelope,
+                                size_t len) {
+  (void)id;
+  char *b43 = NULL;
+  size_t b43_len = 0;
+  if (!base43_encode(envelope, len, &b43, &b43_len)) {
+    kef_encrypt_page_destroy();
+    dialog_show_error("Encoding failed", NULL, 0);
+    current_qr_type = previous_qr_type;
+    lv_dropdown_set_selected(qr_type_dropdown, (uint32_t)current_qr_type);
     return;
-
-  size_t len = strlen(text);
-  if (len >= sizeof(encrypt_kef_id))
-    len = sizeof(encrypt_kef_id) - 1;
-  memcpy(encrypt_kef_id, text, len);
-  encrypt_kef_id[len] = '\0';
-
-  destroy_encrypt_overlay();
-  create_encrypt_keyboard_overlay("Encryption Key", "key", true, true,
-                                  encrypt_keyboard_ready_cb);
-}
-
-static void encrypt_id_confirm_cb(bool confirmed, void *user_data) {
-  (void)user_data;
-  if (confirmed) {
-    /* Use fingerprint as ID — already stored in encrypt_kef_id */
-    create_encrypt_keyboard_overlay("Encryption Key", "key", true, true,
-                                    encrypt_keyboard_ready_cb);
-  } else {
-    /* Show keyboard for custom ID */
-    create_encrypt_keyboard_overlay("Custom ID", "ID", false, false,
-                                    id_keyboard_ready_cb);
   }
+
+  kef_encrypt_page_destroy();
+  SECURE_FREE_STRING(encrypted_qr_data);
+  encrypted_qr_data = b43;
+
+  current_qr_type = QR_TYPE_ENCRYPTED;
+  lv_dropdown_set_selected(qr_type_dropdown, 3);
+  update_qr_code();
 }
 
 static void start_encrypted_flow(void) {
   previous_qr_type = current_qr_type;
 
-  char fp_hex[9] = {0};
-  if (!key_get_fingerprint_hex(fp_hex)) {
-    dialog_show_error("Failed to get fingerprint", NULL, 0);
+  if (!compact_seedqr_data || compact_seedqr_len == 0) {
+    dialog_show_error("No data to encrypt", NULL, 0);
     return;
   }
-  snprintf(encrypt_kef_id, sizeof(encrypt_kef_id), "%s", fp_hex);
 
-  char msg[80];
-  snprintf(msg, sizeof(msg), "Use fingerprint %s as backup ID?", fp_hex);
-  dialog_show_confirm(msg, encrypt_id_confirm_cb, NULL, DIALOG_STYLE_OVERLAY);
+  kef_encrypt_page_create(lv_screen_active(), encrypt_return_cb,
+                           encrypt_success_cb, compact_seedqr_data,
+                           compact_seedqr_len);
 }
-
-/* ---------- End Encrypted QR flow ---------- */
 
 static void update_qr_code(void) {
   if (!qr_code)
@@ -716,7 +522,7 @@ void mnemonic_qr_page_hide(void) {
 }
 
 void mnemonic_qr_page_destroy(void) {
-  destroy_encrypt_overlay();
+  kef_encrypt_page_destroy();
 
   reset_shade_mode();
   destroy_grid_overlay();
@@ -752,5 +558,4 @@ void mnemonic_qr_page_destroy(void) {
   grid_visible = false;
   qr_widget_size = 0;
   last_qr_result = (qr_encode_result_t){0, 0};
-  secure_memzero(encrypt_kef_id, sizeof(encrypt_kef_id));
 }

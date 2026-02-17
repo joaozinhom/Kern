@@ -229,6 +229,33 @@ void dialog_show_confirm(const char *message,
   }
 }
 
+lv_obj_t *dialog_show_progress(const char *title, const char *message,
+                                dialog_style_t style) {
+  lv_obj_t *root;
+  lv_obj_t *dialog = create_dialog_container(style, &root);
+
+  if (title) {
+    lv_obj_t *title_label = theme_create_label(dialog, title, false);
+    lv_obj_set_width(title_label, LV_PCT(90));
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(title_label, theme_font_medium(), 0);
+    lv_obj_set_style_text_color(title_label, highlight_color(), 0);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 10);
+  }
+
+  if (message) {
+    lv_obj_t *msg_label = theme_create_label(dialog, message, false);
+    lv_obj_set_width(msg_label, LV_PCT(90));
+    lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(msg_label, theme_font_medium(), 0);
+    lv_obj_center(msg_label);
+  }
+
+  return root;
+}
+
 void dialog_show_message(const char *title, const char *message) {
   lv_obj_t *modal = lv_obj_create(lv_screen_active());
   lv_obj_set_size(modal, 400, 220);

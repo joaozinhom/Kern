@@ -1,8 +1,10 @@
 // Backup Menu Page
 
 #include "backup_menu.h"
+#include "../../../core/storage.h"
 #include "../../../ui/menu.h"
 #include "../../../ui/theme.h"
+#include "../../store_mnemonic.h"
 #include "mnemonic_qr.h"
 #include "mnemonic_words.h"
 #include <lvgl.h>
@@ -11,10 +13,17 @@ static ui_menu_t *backup_menu = NULL;
 static lv_obj_t *backup_menu_screen = NULL;
 static void (*return_callback)(void) = NULL;
 
-static void menu_words_cb(void);
-static void menu_qr_cb(void);
-static void return_from_mnemonic_words_cb(void);
-static void return_from_mnemonic_qr_cb(void);
+/* --- Words / QR Code callbacks --- */
+
+static void return_from_mnemonic_words_cb(void) {
+  mnemonic_words_page_destroy();
+  backup_menu_page_show();
+}
+
+static void return_from_mnemonic_qr_cb(void) {
+  mnemonic_qr_page_destroy();
+  backup_menu_page_show();
+}
 
 static void menu_words_cb(void) {
   backup_menu_page_hide();
@@ -28,15 +37,28 @@ static void menu_qr_cb(void) {
   mnemonic_qr_page_show();
 }
 
-static void return_from_mnemonic_words_cb(void) {
-  mnemonic_words_page_destroy();
+/* --- Save to Flash / SD callbacks --- */
+
+static void return_from_store_cb(void) {
+  store_mnemonic_page_destroy();
   backup_menu_page_show();
 }
 
-static void return_from_mnemonic_qr_cb(void) {
-  mnemonic_qr_page_destroy();
-  backup_menu_page_show();
+static void menu_save_flash_cb(void) {
+  backup_menu_page_hide();
+  store_mnemonic_page_create(lv_screen_active(), return_from_store_cb,
+                             STORAGE_FLASH);
+  store_mnemonic_page_show();
 }
+
+static void menu_save_sd_cb(void) {
+  backup_menu_page_hide();
+  store_mnemonic_page_create(lv_screen_active(), return_from_store_cb,
+                             STORAGE_SD);
+  store_mnemonic_page_show();
+}
+
+/* --- Back --- */
 
 static void back_cb(void) {
   if (return_callback) {
@@ -58,6 +80,8 @@ void backup_menu_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
 
   ui_menu_add_entry(backup_menu, "Words", menu_words_cb);
   ui_menu_add_entry(backup_menu, "QR Code", menu_qr_cb);
+  ui_menu_add_entry(backup_menu, "Save to Flash", menu_save_flash_cb);
+  ui_menu_add_entry(backup_menu, "Save to SD", menu_save_sd_cb);
 }
 
 void backup_menu_page_show(void) {

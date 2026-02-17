@@ -333,8 +333,7 @@ static kef_error_t nul_unpad_verify_exposed(const uint8_t *dec, size_t dec_len,
 kef_error_t kef_parse_header(const uint8_t *envelope, size_t env_len,
                              const uint8_t **id_out, size_t *id_len_out,
                              uint8_t *version_out, uint32_t *iterations_out) {
-  if (!envelope || env_len < KEF_MIN_HEADER || !id_out || !id_len_out ||
-      !version_out || !iterations_out)
+  if (!envelope || env_len < KEF_MIN_HEADER || !id_out || !id_len_out)
     return KEF_ERR_INVALID_ARG;
 
   size_t id_len = envelope[0];
@@ -347,8 +346,10 @@ kef_error_t kef_parse_header(const uint8_t *envelope, size_t env_len,
 
   *id_out = envelope + 1;
   *id_len_out = id_len;
-  *version_out = envelope[1 + id_len];
-  *iterations_out = kef_decode_iterations(envelope + 1 + id_len + 1);
+  if (version_out)
+    *version_out = envelope[1 + id_len];
+  if (iterations_out)
+    *iterations_out = kef_decode_iterations(envelope + 1 + id_len + 1);
   return KEF_OK;
 }
 

@@ -24,7 +24,7 @@
 #define DECRYPT_TASK_STACK_SIZE 8192
 
 static lv_obj_t *kef_screen = NULL;
-static lv_obj_t *loading_label = NULL;
+static lv_obj_t *progress_dialog = NULL;
 static ui_text_input_t text_input = {0};
 static lv_timer_t *poll_timer = NULL;
 
@@ -45,14 +45,16 @@ static TaskHandle_t decrypt_task_handle = NULL;
 
 static void show_input(void) {
   ui_text_input_show(&text_input);
-  if (loading_label)
-    lv_obj_add_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+  if (progress_dialog) {
+    lv_obj_del(progress_dialog);
+    progress_dialog = NULL;
+  }
 }
 
 static void show_loading(void) {
   ui_text_input_hide(&text_input);
-  if (loading_label)
-    lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+  progress_dialog =
+      dialog_show_progress("KEF", "Decrypting...", DIALOG_STYLE_OVERLAY);
 }
 
 /* Runs on CPU 1 — does NOT touch LVGL */
@@ -198,13 +200,7 @@ void kef_decrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
   /* Text input (textarea + eye toggle + keyboard) */
   ui_text_input_create(&text_input, kef_screen, "key", true, keyboard_ready_cb);
 
-  /* Loading label (hidden initially) */
-  loading_label = lv_label_create(kef_screen);
-  lv_label_set_text(loading_label, "Decrypting...");
-  lv_obj_set_style_text_font(loading_label, theme_font_small(), 0);
-  lv_obj_set_style_text_color(loading_label, main_color(), 0);
-  lv_obj_align(loading_label, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_add_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+  progress_dialog = NULL;
 }
 
 void kef_decrypt_page_show(void) {
@@ -236,7 +232,10 @@ void kef_decrypt_page_destroy(void) {
     lv_obj_del(kef_screen);
     kef_screen = NULL;
   }
-  loading_label = NULL;
+  if (progress_dialog) {
+    lv_obj_del(progress_dialog);
+    progress_dialog = NULL;
+  }
 
   SECURE_FREE_BUFFER(envelope_copy, envelope_copy_len);
   envelope_copy_len = 0;

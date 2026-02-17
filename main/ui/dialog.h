@@ -1,6 +1,7 @@
 #ifndef DIALOG_H
 #define DIALOG_H
 
+#include <lvgl.h>
 #include <stdbool.h>
 
 typedef enum {
@@ -30,5 +31,12 @@ void dialog_show_confirm(const char *message,
                          dialog_style_t style);
 
 void dialog_show_message(const char *title, const char *message);
+
+/**
+ * Show a buttonless progress dialog (e.g. "Wiping Flash...", "Encrypting...").
+ * Returns the root object — caller must lv_obj_del() it when done.
+ */
+lv_obj_t *dialog_show_progress(const char *title, const char *message,
+                                dialog_style_t style);
 
 #endif

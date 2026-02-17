@@ -82,6 +82,7 @@ kef_error_t kef_decrypt(const uint8_t *envelope, size_t env_len,
 /*
  * Parse header fields without decrypting.
  * id_out points into the envelope buffer (not a copy).
+ * version_out and iterations_out may be NULL if not needed.
  */
 kef_error_t kef_parse_header(const uint8_t *envelope, size_t env_len,
                              const uint8_t **id_out, size_t *id_len_out,

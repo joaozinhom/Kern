@@ -3,12 +3,14 @@
 #include "load_menu.h"
 #include "../../core/base43.h"
 #include "../../core/kef.h"
+#include "../../core/storage.h"
 #include "../../qr/scanner.h"
 #include "../../ui/menu.h"
 #include "../../ui/theme.h"
 #include "../home/home.h"
 #include "../kef_decrypt_page.h"
 #include "../key_confirmation.h"
+#include "load_storage.h"
 #include "manual_input.h"
 #include <lvgl.h>
 #include <stdlib.h>
@@ -114,6 +116,34 @@ static void from_manual_input_cb(void) {
   manual_input_page_show();
 }
 
+/* --- Load from Flash / SD --- */
+
+static void return_from_storage_cb(void) {
+  load_storage_page_destroy();
+  load_menu_page_show();
+}
+
+static void success_from_storage_cb(void) {
+  load_storage_page_destroy();
+  load_menu_page_destroy();
+  home_page_create(lv_screen_active());
+  home_page_show();
+}
+
+static void from_flash_cb(void) {
+  load_menu_page_hide();
+  load_storage_page_create(lv_screen_active(), return_from_storage_cb,
+                           success_from_storage_cb, STORAGE_FLASH);
+  load_storage_page_show();
+}
+
+static void from_sd_cb(void) {
+  load_menu_page_hide();
+  load_storage_page_create(lv_screen_active(), return_from_storage_cb,
+                           success_from_storage_cb, STORAGE_SD);
+  load_storage_page_show();
+}
+
 static void back_cb(void) {
   void (*callback)(void) = return_callback;
   load_menu_page_hide();
@@ -135,6 +165,8 @@ void load_menu_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
 
   ui_menu_add_entry(load_menu, "From QR Code", from_qr_code_cb);
   ui_menu_add_entry(load_menu, "From Manual Input", from_manual_input_cb);
+  ui_menu_add_entry(load_menu, "From Flash", from_flash_cb);
+  ui_menu_add_entry(load_menu, "From SD Card", from_sd_cb);
   ui_menu_show(load_menu);
 }
 
