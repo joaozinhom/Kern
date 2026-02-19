@@ -106,12 +106,14 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
     - ✅ Plain
     - ✅ SeedQR
     - ✅ Compact SeedQR
-  - ❌ Encrypted
+  - Encrypted
+   - ✅Flash
+   - ✅SD Card
 - Back up
   - ✅ Words
   - ✅ QR codes
   - ❌ Binary Grids
-  - ❌ Encrypted
+  - ✅ Encrypted
 - ✅ Passphrases
 - Networks
   - ✅ Mainnet
@@ -124,16 +126,28 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
 - Descriptors
   - ✅ Loading
   - ✅ Exporting
-  - ❌ saving
+  - ❌ Saving
   - ❌ Encrypting/Decrypting
 - Script type
   - ✅ Native Segwit
   - ❌ Nested Segwit
   - ❌ Taproot
 
-- ❌ OTP based secure boot
+- Security
+  - ✅ KEF encryption
+  - ❌ PIN
+  - ❌ OTP based secure boot
+  - ❌ Flash/RAM encryption
 
-- ❌ KEF encryption
+- Easy Installer
+ - ❌ Flasher
+ - ❌ Secure boot activation
+ - ❌ Flash/RAM encryption activation
+
+- Reliability
+  - ❌ Auto tests
+
+- ❌ User's documentation
 
 ## License
 
