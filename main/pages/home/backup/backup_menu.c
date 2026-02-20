@@ -2,6 +2,7 @@
 
 #include "backup_menu.h"
 #include "../../../core/storage.h"
+#include "../../../ui/dialog.h"
 #include "../../../ui/menu.h"
 #include "../../../ui/theme.h"
 #include "../../store_mnemonic.h"
@@ -25,17 +26,35 @@ static void return_from_mnemonic_qr_cb(void) {
   backup_menu_page_show();
 }
 
-static void menu_words_cb(void) {
-  backup_menu_page_hide();
+static void (*pending_action)(void) = NULL;
+
+static void launch_words(void) {
   mnemonic_words_page_create(lv_screen_active(), return_from_mnemonic_words_cb);
   mnemonic_words_page_show();
 }
 
-static void menu_qr_cb(void) {
-  backup_menu_page_hide();
+static void launch_qr(void) {
   mnemonic_qr_page_create(lv_screen_active(), return_from_mnemonic_qr_cb);
   mnemonic_qr_page_show();
 }
+
+static void danger_confirm_cb(bool confirmed, void *user_data) {
+  (void)user_data;
+  if (!confirmed)
+    return;
+  backup_menu_page_hide();
+  pending_action();
+}
+
+static void warn_and_launch(void (*action)(void)) {
+  pending_action = action;
+  dialog_show_danger_confirm(DIALOG_SENSITIVE_DATA_WARNING, danger_confirm_cb,
+                             NULL, DIALOG_STYLE_OVERLAY);
+}
+
+static void menu_words_cb(void) { warn_and_launch(launch_words); }
+
+static void menu_qr_cb(void) { warn_and_launch(launch_qr); }
 
 /* --- Save to Flash / SD callbacks --- */
 

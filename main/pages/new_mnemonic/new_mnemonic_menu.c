@@ -1,6 +1,7 @@
 // New Mnemonic Menu Page
 
 #include "new_mnemonic_menu.h"
+#include "../../ui/dialog.h"
 #include "../../ui/menu.h"
 #include "../../ui/theme.h"
 #include "../home/home.h"
@@ -80,25 +81,44 @@ static void success_from_key_confirmation_cb(void) {
   home_page_show();
 }
 
-static void from_dice_rolls_cb(void) {
-  new_mnemonic_menu_page_hide();
+static void (*pending_action)(void) = NULL;
+
+static void launch_dice_rolls(void) {
   dice_rolls_page_create(lv_screen_active(), return_from_dice_rolls_cb);
   dice_rolls_page_show();
 }
 
-static void from_words_cb(void) {
-  new_mnemonic_menu_page_hide();
+static void launch_words(void) {
   manual_input_page_create(lv_screen_active(), return_from_manual_input_cb,
                            success_from_key_confirmation_cb, true);
   manual_input_page_show();
 }
 
-static void from_camera_cb(void) {
-  new_mnemonic_menu_page_hide();
+static void launch_camera(void) {
   entropy_from_camera_page_create(lv_screen_active(),
                                   return_from_entropy_from_camera_cb);
   entropy_from_camera_page_show();
 }
+
+static void danger_confirm_cb(bool confirmed, void *user_data) {
+  (void)user_data;
+  if (!confirmed)
+    return;
+  new_mnemonic_menu_page_hide();
+  pending_action();
+}
+
+static void warn_and_launch(void (*action)(void)) {
+  pending_action = action;
+  dialog_show_danger_confirm(DIALOG_SENSITIVE_DATA_WARNING, danger_confirm_cb,
+                             NULL, DIALOG_STYLE_OVERLAY);
+}
+
+static void from_dice_rolls_cb(void) { warn_and_launch(launch_dice_rolls); }
+
+static void from_words_cb(void) { warn_and_launch(launch_words); }
+
+static void from_camera_cb(void) { warn_and_launch(launch_camera); }
 
 static void back_cb(void) {
   void (*callback)(void) = return_callback;
