@@ -39,7 +39,7 @@ static kef_encrypt_success_cb_t success_callback = NULL;
 static uint8_t *data_copy = NULL;
 static size_t data_copy_len = 0;
 
-/* KEF ID (fingerprint or custom) */
+/* KEF ID (suggested, fingerprint, or custom) */
 static char kef_id[64] = {0};
 
 /* Background encryption task */
@@ -229,11 +229,10 @@ static void encrypt_task(void *arg) {
     encrypt_envelope_len = 0;
   }
 
-  encrypt_result =
-      kef_encrypt((const uint8_t *)kef_id, strlen(kef_id), KEF_V20_GCM_E4,
-                  encrypt_key_copy, encrypt_key_copy_len, KEF_ITERATIONS,
-                  data_copy, data_copy_len, &encrypt_envelope,
-                  &encrypt_envelope_len);
+  encrypt_result = kef_encrypt(
+      (const uint8_t *)kef_id, strlen(kef_id), KEF_V20_GCM_E4, encrypt_key_copy,
+      encrypt_key_copy_len, KEF_ITERATIONS, data_copy, data_copy_len,
+      &encrypt_envelope, &encrypt_envelope_len);
 
   SECURE_FREE_BUFFER(encrypt_key_copy, encrypt_key_copy_len);
   encrypt_key_copy_len = 0;
@@ -380,8 +379,9 @@ static void id_confirm_cb(bool confirmed, void *user_data) {
 /* ---------- Page lifecycle ---------- */
 
 void kef_encrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
-                              kef_encrypt_success_cb_t success_cb,
-                              const uint8_t *data, size_t data_len) {
+                             kef_encrypt_success_cb_t success_cb,
+                             const uint8_t *data, size_t data_len,
+                             const char *suggested_id) {
   (void)parent;
   if (!data || data_len == 0)
     return;
@@ -396,18 +396,25 @@ void kef_encrypt_page_create(lv_obj_t *parent, void (*return_cb)(void),
   memcpy(data_copy, data, data_len);
   data_copy_len = data_len;
 
-  /* Get fingerprint and prompt for ID */
-  char fp_hex[9] = {0};
-  if (!key_get_fingerprint_hex(fp_hex)) {
-    SECURE_FREE_BUFFER(data_copy, data_copy_len);
-    data_copy_len = 0;
-    dialog_show_error("Failed to get fingerprint", return_cb, 0);
-    return;
-  }
-  snprintf(kef_id, sizeof(kef_id), "%s", fp_hex);
-
   char msg[80];
-  snprintf(msg, sizeof(msg), "Use fingerprint %s as backup ID?", fp_hex);
+
+  if (suggested_id && suggested_id[0] != '\0') {
+    /* Caller-provided ID (e.g. descriptor checksum) */
+    snprintf(kef_id, sizeof(kef_id), "%s", suggested_id);
+    snprintf(msg, sizeof(msg), "Use %s as backup ID?", suggested_id);
+  } else {
+    /* Fall back to wallet fingerprint */
+    char fp_hex[9] = {0};
+    if (!key_get_fingerprint_hex(fp_hex)) {
+      SECURE_FREE_BUFFER(data_copy, data_copy_len);
+      data_copy_len = 0;
+      dialog_show_error("Failed to get fingerprint", return_cb, 0);
+      return;
+    }
+    snprintf(kef_id, sizeof(kef_id), "%s", fp_hex);
+    snprintf(msg, sizeof(msg), "Use fingerprint %s as backup ID?", fp_hex);
+  }
+
   dialog_show_confirm(msg, id_confirm_cb, NULL, DIALOG_STYLE_OVERLAY);
 }
 

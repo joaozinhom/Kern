@@ -5,6 +5,7 @@
 #include "../ui/assets/icons_24.h"
 #include "../ui/dialog.h"
 #include "../ui/key_info.h"
+#include "../ui/menu.h"
 #include "../ui/theme.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -199,6 +200,49 @@ void descriptor_loader_process_scanner(validation_complete_cb validation_cb,
     if (error_cb) {
       error_cb();
     }
+  }
+}
+
+void descriptor_loader_process_string(const char *descriptor_str,
+                                      validation_complete_cb validation_cb,
+                                      void *user_data) {
+  if (!descriptor_str) {
+    if (validation_cb)
+      validation_cb(VALIDATION_PARSE_ERROR, user_data);
+    return;
+  }
+
+  char *unambiguous = descriptor_to_unambiguous(descriptor_str);
+  descriptor_validate_and_load(unambiguous ? unambiguous : descriptor_str,
+                               validation_cb, descriptor_confirm_wrapper,
+                               descriptor_info_confirm_wrapper, user_data);
+  free(unambiguous);
+}
+
+/* ---------- Source selection menu ---------- */
+
+static ui_menu_t *source_menu = NULL;
+
+void descriptor_loader_show_source_menu(lv_obj_t *parent, void (*qr_cb)(void),
+                                        void (*flash_cb)(void),
+                                        void (*sd_cb)(void),
+                                        void (*back_cb)(void)) {
+  descriptor_loader_destroy_source_menu();
+
+  source_menu = ui_menu_create(parent, "Load Descriptor", back_cb);
+  if (!source_menu)
+    return;
+
+  ui_menu_add_entry(source_menu, "From QR Code", qr_cb);
+  ui_menu_add_entry(source_menu, "From Flash", flash_cb);
+  ui_menu_add_entry(source_menu, "From SD Card", sd_cb);
+  ui_menu_show(source_menu);
+}
+
+void descriptor_loader_destroy_source_menu(void) {
+  if (source_menu) {
+    ui_menu_destroy(source_menu);
+    source_menu = NULL;
   }
 }
 

@@ -1,6 +1,7 @@
 // Addresses Page - Displays receive and change addresses
 
 #include "addresses.h"
+#include "../../core/storage.h"
 #include "../../core/wallet.h"
 #include "../../qr/scanner.h"
 #include "../../ui/assets/icons_36.h"
@@ -9,6 +10,7 @@
 #include "../../ui/key_info.h"
 #include "../../ui/theme.h"
 #include "../descriptor_loader.h"
+#include "../load_descriptor_storage.h"
 #include "../settings/wallet_settings.h"
 #include <lvgl.h>
 #include <stdint.h>
@@ -122,16 +124,20 @@ static void next_button_cb(lv_event_t *e) {
   refresh_address_list();
 }
 
+static void on_descriptor_loaded(void) {
+  if (load_descriptor_btn)
+    lv_obj_add_flag(load_descriptor_btn, LV_OBJ_FLAG_HIDDEN);
+  if (btn_cont)
+    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_HIDDEN);
+  refresh_address_list();
+}
+
 static void descriptor_validation_cb(descriptor_validation_result_t result,
                                      void *user_data) {
   (void)user_data;
 
   if (result == VALIDATION_SUCCESS) {
-    if (load_descriptor_btn)
-      lv_obj_add_flag(load_descriptor_btn, LV_OBJ_FLAG_HIDDEN);
-    if (btn_cont)
-      lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_HIDDEN);
-    refresh_address_list();
+    on_descriptor_loaded();
     return;
   }
 
@@ -143,11 +149,53 @@ static void return_from_descriptor_scanner_cb(void) {
   addresses_page_show();
 }
 
-static void load_descriptor_btn_cb(lv_event_t *e) {
-  (void)e;
+static void return_from_descriptor_storage(void) {
+  load_descriptor_storage_page_destroy();
+  addresses_page_show();
+}
+
+static void success_from_descriptor_storage(void) {
+  load_descriptor_storage_page_destroy();
+  addresses_page_show();
+  on_descriptor_loaded();
+}
+
+static void load_desc_qr_cb(void) {
+  descriptor_loader_destroy_source_menu();
   addresses_page_hide();
   qr_scanner_page_create(NULL, return_from_descriptor_scanner_cb);
   qr_scanner_page_show();
+}
+
+static void load_desc_flash_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  addresses_page_hide();
+  load_descriptor_storage_page_create(
+      lv_screen_active(), return_from_descriptor_storage,
+      success_from_descriptor_storage, STORAGE_FLASH);
+  load_descriptor_storage_page_show();
+}
+
+static void load_desc_sd_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  addresses_page_hide();
+  load_descriptor_storage_page_create(
+      lv_screen_active(), return_from_descriptor_storage,
+      success_from_descriptor_storage, STORAGE_SD);
+  load_descriptor_storage_page_show();
+}
+
+static void load_desc_source_back_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  addresses_page_show();
+}
+
+static void load_descriptor_btn_cb(lv_event_t *e) {
+  (void)e;
+  addresses_page_hide();
+  descriptor_loader_show_source_menu(lv_screen_active(), load_desc_qr_cb,
+                                     load_desc_flash_cb, load_desc_sd_cb,
+                                     load_desc_source_back_cb);
 }
 
 static void truncate_address_middle(char *dest, size_t dest_size,
@@ -571,6 +619,9 @@ void addresses_page_hide(void) {
 }
 
 void addresses_page_destroy(void) {
+  load_descriptor_storage_page_destroy();
+  descriptor_loader_destroy_source_menu();
+
   if (detail_back_button) {
     lv_obj_del(detail_back_button);
     detail_back_button = NULL;

@@ -318,7 +318,7 @@ static void encrypt_return_cb(void) {
 }
 
 static void encrypt_success_cb(const char *id, const uint8_t *envelope,
-                                size_t len) {
+                               size_t len) {
   (void)id;
   char *b43 = NULL;
   size_t b43_len = 0;
@@ -348,8 +348,8 @@ static void start_encrypted_flow(void) {
   }
 
   kef_encrypt_page_create(lv_screen_active(), encrypt_return_cb,
-                           encrypt_success_cb, compact_seedqr_data,
-                           compact_seedqr_len);
+                          encrypt_success_cb, compact_seedqr_data,
+                          compact_seedqr_len, NULL);
 }
 
 static void update_qr_code(void) {

@@ -41,9 +41,9 @@ int ui_menu_get_selected(ui_menu_t *menu);
 void ui_menu_show(ui_menu_t *menu);
 void ui_menu_hide(ui_menu_t *menu);
 bool ui_menu_add_entry_with_action(ui_menu_t *menu, const char *name,
-                                    ui_menu_callback_t callback,
-                                    const char *action_icon,
-                                    ui_menu_action_callback_t action_cb);
+                                   ui_menu_callback_t callback,
+                                   const char *action_icon,
+                                   ui_menu_action_callback_t action_cb);
 void ui_menu_destroy(ui_menu_t *menu);
 
 #endif

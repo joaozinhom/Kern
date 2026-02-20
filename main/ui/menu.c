@@ -118,9 +118,9 @@ static void action_button_event_cb(lv_event_t *e) {
 }
 
 bool ui_menu_add_entry_with_action(ui_menu_t *menu, const char *name,
-                                    ui_menu_callback_t callback,
-                                    const char *action_icon,
-                                    ui_menu_action_callback_t action_cb) {
+                                   ui_menu_callback_t callback,
+                                   const char *action_icon,
+                                   ui_menu_action_callback_t action_cb) {
   if (!menu || !name || !callback || !action_icon || !action_cb ||
       menu->config.entry_count >= UI_MENU_MAX_ENTRIES)
     return false;
@@ -159,8 +159,7 @@ bool ui_menu_add_entry_with_action(ui_menu_t *menu, const char *name,
   lv_obj_set_style_pad_all(icon_btn, 0, 0);
   lv_obj_clear_flag(icon_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_set_user_data(icon_btn, (void *)(intptr_t)idx);
-  lv_obj_add_event_cb(icon_btn, action_button_event_cb, LV_EVENT_CLICKED,
-                      menu);
+  lv_obj_add_event_cb(icon_btn, action_button_event_cb, LV_EVENT_CLICKED, menu);
 
   lv_obj_t *icon_label = lv_label_create(icon_btn);
   lv_label_set_text(icon_label, action_icon);
@@ -176,10 +175,18 @@ bool ui_menu_set_entry_enabled(ui_menu_t *menu, int index, bool enabled) {
     return false;
 
   menu->config.entries[index].enabled = enabled;
-  if (enabled)
+  if (enabled) {
     lv_obj_clear_state(menu->buttons[index], LV_STATE_DISABLED);
-  else
+  } else {
     lv_obj_add_state(menu->buttons[index], LV_STATE_DISABLED);
+  }
+
+  /* Update label color to reflect enabled/disabled state */
+  lv_obj_t *label = lv_obj_get_child(menu->buttons[index], 0);
+  if (label) {
+    lv_obj_set_style_text_color(label,
+                                enabled ? main_color() : disabled_color(), 0);
+  }
   return true;
 }
 

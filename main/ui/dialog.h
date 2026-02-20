@@ -37,6 +37,6 @@ void dialog_show_message(const char *title, const char *message);
  * Returns the root object — caller must lv_obj_del() it when done.
  */
 lv_obj_t *dialog_show_progress(const char *title, const char *message,
-                                dialog_style_t style);
+                               dialog_style_t style);
 
 #endif

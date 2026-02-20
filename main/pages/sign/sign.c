@@ -7,6 +7,7 @@
 #include "../../../components/cUR/src/types/psbt.h"
 #include "../../core/key.h"
 #include "../../core/psbt.h"
+#include "../../core/storage.h"
 #include "../../core/wallet.h"
 #include "../../qr/parser.h"
 #include "../../qr/scanner.h"
@@ -17,6 +18,7 @@
 #include "../../ui/sankey.h"
 #include "../../ui/theme.h"
 #include "../descriptor_loader.h"
+#include "../load_descriptor_storage.h"
 #include <esp_log.h>
 #include <lvgl.h>
 #include <stdio.h>
@@ -794,6 +796,7 @@ static void cleanup_psbt_data(void) {
 
 // Multisig menu callbacks
 static void multisig_menu_back_cb(void) {
+  descriptor_loader_destroy_source_menu();
   if (multisig_menu) {
     ui_menu_destroy(multisig_menu);
     multisig_menu = NULL;
@@ -801,25 +804,6 @@ static void multisig_menu_back_cb(void) {
   cleanup_psbt_data();
   if (return_callback) {
     return_callback();
-  }
-}
-
-static void load_descriptor_menu_cb(void) {
-  if (multisig_menu) {
-    ui_menu_hide(multisig_menu);
-  }
-  qr_scanner_page_create(NULL, return_from_descriptor_scanner_cb);
-  qr_scanner_page_show();
-}
-
-static void sign_without_verification_cb(void) {
-  if (multisig_menu) {
-    ui_menu_destroy(multisig_menu);
-    multisig_menu = NULL;
-  }
-  skip_verification = true;
-  if (!create_psbt_info_display()) {
-    dialog_show_error("Invalid PSBT data", return_callback, 0);
   }
 }
 
@@ -833,6 +817,7 @@ static void descriptor_validation_cb(descriptor_validation_result_t result,
   (void)user_data;
 
   if (result == VALIDATION_SUCCESS) {
+    descriptor_loader_destroy_source_menu();
     if (multisig_menu) {
       ui_menu_destroy(multisig_menu);
       multisig_menu = NULL;
@@ -850,6 +835,72 @@ static void descriptor_validation_cb(descriptor_validation_result_t result,
 static void return_from_descriptor_scanner_cb(void) {
   descriptor_loader_process_scanner(descriptor_validation_cb, NULL,
                                     show_multisig_menu_on_error);
+}
+
+static void return_from_descriptor_storage(void) {
+  load_descriptor_storage_page_destroy();
+  show_multisig_menu_on_error();
+}
+
+static void success_from_descriptor_storage(void) {
+  load_descriptor_storage_page_destroy();
+  descriptor_loader_destroy_source_menu();
+  if (multisig_menu) {
+    ui_menu_destroy(multisig_menu);
+    multisig_menu = NULL;
+  }
+  if (!create_psbt_info_display()) {
+    dialog_show_error("Invalid PSBT data", return_callback, 0);
+  }
+}
+
+static void load_desc_from_qr_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  if (multisig_menu)
+    ui_menu_hide(multisig_menu);
+  qr_scanner_page_create(NULL, return_from_descriptor_scanner_cb);
+  qr_scanner_page_show();
+}
+
+static void load_desc_from_flash_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  if (multisig_menu)
+    ui_menu_hide(multisig_menu);
+  load_descriptor_storage_page_create(
+      lv_screen_active(), return_from_descriptor_storage,
+      success_from_descriptor_storage, STORAGE_FLASH);
+  load_descriptor_storage_page_show();
+}
+
+static void load_desc_from_sd_cb(void) {
+  descriptor_loader_destroy_source_menu();
+  if (multisig_menu)
+    ui_menu_hide(multisig_menu);
+  load_descriptor_storage_page_create(
+      lv_screen_active(), return_from_descriptor_storage,
+      success_from_descriptor_storage, STORAGE_SD);
+  load_descriptor_storage_page_show();
+}
+
+static void load_desc_source_back_cb(void) {
+  descriptor_loader_destroy_source_menu();
+}
+
+static void load_descriptor_menu_cb(void) {
+  descriptor_loader_show_source_menu(
+      sign_screen, load_desc_from_qr_cb, load_desc_from_flash_cb,
+      load_desc_from_sd_cb, load_desc_source_back_cb);
+}
+
+static void sign_without_verification_cb(void) {
+  if (multisig_menu) {
+    ui_menu_destroy(multisig_menu);
+    multisig_menu = NULL;
+  }
+  skip_verification = true;
+  if (!create_psbt_info_display()) {
+    dialog_show_error("Invalid PSBT data", return_callback, 0);
+  }
 }
 
 static void show_multisig_options_menu(void) {
@@ -896,6 +947,8 @@ void sign_page_hide(void) {
 
 void sign_page_destroy(void) {
   qr_scanner_page_destroy();
+  load_descriptor_storage_page_destroy();
+  descriptor_loader_destroy_source_menu();
 
   cleanup_psbt_data();
 

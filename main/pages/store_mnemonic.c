@@ -111,7 +111,7 @@ static void encrypt_return_cb(void) {
 }
 
 static void encrypt_success_cb(const char *id, const uint8_t *envelope,
-                                size_t len) {
+                               size_t len) {
   /* Envelope and ID remain valid until kef_encrypt_page_destroy() */
   pending_envelope = envelope;
   pending_envelope_len = len;
@@ -165,7 +165,7 @@ void store_mnemonic_page_create(lv_obj_t *parent, void (*return_cb)(void),
   lv_obj_align(title_label, LV_ALIGN_CENTER, 0, 0);
 
   kef_encrypt_page_create(parent, encrypt_return_cb, encrypt_success_cb,
-                           compact_seedqr_data, compact_seedqr_len);
+                          compact_seedqr_data, compact_seedqr_len, NULL);
 }
 
 void store_mnemonic_page_show(void) {

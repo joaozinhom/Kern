@@ -1,12 +1,17 @@
 /*
- * Persistent mnemonic storage
+ * Persistent storage for mnemonics and descriptors
  *
- * Stores KEF-encrypted mnemonics on SPIFFS (flash) or SD card.
+ * Stores KEF-encrypted or plaintext data on SPIFFS (flash) or SD card.
  * Flash: raw binary (no encoding overhead on constrained SPIFFS).
- * SD card: base64-encoded (portable, human-inspectable).
+ * SD card: base64-encoded for KEF, raw text for plaintext.
  *
- * Flash path:  /spiffs/m_<sanitized_id>.kef
- * SD card path: /sdcard/kern/mnemonics/<sanitized_id>.kef
+ * Mnemonic paths:
+ *   Flash:  /spiffs/m_<sanitized_id>.kef
+ *   SD:     /sdcard/kern/mnemonics/<sanitized_id>.kef
+ *
+ * Descriptor paths:
+ *   Flash:  /spiffs/d_<sanitized_id>.kef or .txt
+ *   SD:     /sdcard/kern/descriptors/<sanitized_id>.kef or .txt
  */
 
 #ifndef STORAGE_H
@@ -25,10 +30,14 @@ typedef enum {
 
 #define STORAGE_FLASH_BASE_PATH "/spiffs"
 #define STORAGE_SD_MNEMONICS_DIR "/sdcard/kern/mnemonics"
+#define STORAGE_SD_DESCRIPTORS_DIR "/sdcard/kern/descriptors"
 
 #define STORAGE_MAX_SANITIZED_ID_LEN 24
 #define STORAGE_MNEMONIC_PREFIX "m_"
 #define STORAGE_MNEMONIC_EXT ".kef"
+#define STORAGE_DESCRIPTOR_PREFIX "d_"
+#define STORAGE_DESCRIPTOR_EXT_KEF ".kef"
+#define STORAGE_DESCRIPTOR_EXT_TXT ".txt"
 
 /**
  * Initialize flash storage (mount SPIFFS). Safe to call multiple times.
@@ -71,8 +80,7 @@ esp_err_t storage_list_mnemonics(storage_location_t loc, char ***filenames_out,
 /**
  * Delete a stored mnemonic file.
  */
-esp_err_t storage_delete_mnemonic(storage_location_t loc,
-                                  const char *filename);
+esp_err_t storage_delete_mnemonic(storage_location_t loc, const char *filename);
 
 /**
  * Securely wipe flash storage.
@@ -99,8 +107,66 @@ bool storage_mnemonic_exists(storage_location_t loc, const char *id);
 void storage_sanitize_id(const char *raw_id, char *out, size_t out_size);
 
 /**
- * Free a file list returned by storage_list_mnemonics.
+ * Free a file list returned by storage_list_mnemonics or
+ * storage_list_descriptors.
  */
 void storage_free_file_list(char **files, int count);
+
+/**
+ * Extract display name from a KEF envelope's header ID field.
+ *
+ * @param data  Raw KEF envelope data
+ * @param len   Length of data
+ * @return Heap-allocated ID string, or NULL on failure. Caller frees.
+ */
+char *storage_get_kef_display_name(const uint8_t *data, size_t len);
+
+/* ---------- Descriptor storage ---------- */
+
+/**
+ * Save a descriptor. If encrypted, saves KEF envelope (raw on flash,
+ * base64 on SD). If plaintext, saves raw text on both.
+ *
+ * @param loc       Flash or SD card
+ * @param id        Raw ID (sanitized for the filename)
+ * @param data      Descriptor data (KEF envelope or plaintext string)
+ * @param len       Length of data
+ * @param encrypted true for .kef, false for .txt
+ */
+esp_err_t storage_save_descriptor(storage_location_t loc, const char *id,
+                                  const uint8_t *data, size_t len,
+                                  bool encrypted);
+
+/**
+ * Load a descriptor file. Detects format by extension.
+ * .kef on SD: base64-decoded. .txt: raw text. .kef on flash: raw binary.
+ *
+ * @param loc           Flash or SD card
+ * @param filename      Filename (e.g. "d_MyWallet.kef" or "MyWallet.txt")
+ * @param data_out      Receives heap-allocated data
+ * @param len_out       Receives length
+ * @param encrypted_out Receives true if file is .kef, false if .txt
+ */
+esp_err_t storage_load_descriptor(storage_location_t loc, const char *filename,
+                                  uint8_t **data_out, size_t *len_out,
+                                  bool *encrypted_out);
+
+/**
+ * List stored descriptor files (.kef and .txt).
+ */
+esp_err_t storage_list_descriptors(storage_location_t loc,
+                                   char ***filenames_out, int *count_out);
+
+/**
+ * Delete a stored descriptor file.
+ */
+esp_err_t storage_delete_descriptor(storage_location_t loc,
+                                    const char *filename);
+
+/**
+ * Check if a descriptor with the given ID already exists.
+ */
+bool storage_descriptor_exists(storage_location_t loc, const char *id,
+                               bool encrypted);
 
 #endif /* STORAGE_H */
