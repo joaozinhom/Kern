@@ -126,8 +126,8 @@ The simplicity and UI polish of [SeedSigner](https://github.com/SeedSigner/seeds
 - Descriptors
   - ✅ Loading
   - ✅ Exporting
-  - ❌ Saving
-  - ❌ Encrypting/Decrypting
+  - ✅ Saving
+  - ✅ Encrypting/Decrypting
 - Script type
   - ✅ Native Segwit
   - ❌ Nested Segwit
