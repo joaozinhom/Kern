@@ -8,51 +8,25 @@
 #include "freertos/task.h"
 
 /*
- * LIFO (stack) data structure for flood-fill algorithm
+ * LIFO (stack) for flood-fill — uses persistent buffer from struct k_quirc
  */
 typedef struct {
-  uint8_t *data;
+  int16_t x, y, l, r;
+} xylf_t;
+
+typedef struct {
+  xylf_t *data;
   size_t len;
   size_t capacity;
-  size_t data_len;
 } lifo_t;
 
-static void lifo_init(lifo_t *lifo, size_t element_size, size_t max_elements) {
-  lifo->data_len = element_size;
-  lifo->capacity = max_elements;
-  lifo->len = 0;
-  lifo->data = K_MALLOC_FAST(element_size * max_elements);
-  if (!lifo->data) {
-    lifo->data = K_MALLOC(element_size * max_elements);
-  }
+ALWAYS_INLINE void lifo_push(lifo_t *s, const xylf_t *item) {
+  if (s->len < s->capacity)
+    s->data[s->len++] = *item;
 }
 
-static void lifo_free(lifo_t *lifo) {
-  if (lifo->data) {
-    K_FREE(lifo->data);
-    lifo->data = NULL;
-  }
-  lifo->len = 0;
-  lifo->capacity = 0;
-}
-
-struct xylf_struct {
-  int16_t x, y, l, r;
-};
-typedef struct xylf_struct xylf_t;
-
-static void lifo_enqueue_fast(lifo_t *ptr, xylf_t *data) {
-  if (ptr->len < ptr->capacity) {
-    *((xylf_t *)(ptr->data + (ptr->len * ptr->data_len))) = *data;
-    ptr->len += 1;
-  }
-}
-
-static void lifo_dequeue_fast(lifo_t *ptr, xylf_t *data) {
-  if (ptr->len > 0) {
-    ptr->len -= 1;
-    *data = *((xylf_t *)(ptr->data + (ptr->len * ptr->data_len)));
-  }
+ALWAYS_INLINE void lifo_pop(lifo_t *s, xylf_t *item) {
+  *item = s->data[--s->len];
 }
 
 /*
@@ -210,12 +184,10 @@ static void flood_fill_seed(struct k_quirc *q, int x, int y,
                             span_func_t func, void *user_data, int depth) {
   (void)depth;
 
-  size_t max_stack = 32768;
-
   lifo_t lifo;
-  lifo_init(&lifo, sizeof(xylf_t), max_stack);
-  if (!lifo.data)
-    return;
+  lifo.data = (xylf_t *)q->flood_fill_stack;
+  lifo.len = 0;
+  lifo.capacity = QUIRC_FLOOD_FILL_STACK;
 
   for (;;) {
     int left = x;
@@ -244,7 +216,7 @@ static void flood_fill_seed(struct k_quirc *q, int x, int y,
             if (row[i] == from_color) {
               xylf_t context = {(int16_t)x, (int16_t)y, (int16_t)left,
                                 (int16_t)right};
-              lifo_enqueue_fast(&lifo, &context);
+              lifo_push(&lifo, &context);
               x = i;
               y = y - 1;
               recurse = true;
@@ -259,7 +231,7 @@ static void flood_fill_seed(struct k_quirc *q, int x, int y,
             if (row[i] == from_color) {
               xylf_t context = {(int16_t)x, (int16_t)y, (int16_t)left,
                                 (int16_t)right};
-              lifo_enqueue_fast(&lifo, &context);
+              lifo_push(&lifo, &context);
               x = i;
               y = y + 1;
               recurse = true;
@@ -270,13 +242,11 @@ static void flood_fill_seed(struct k_quirc *q, int x, int y,
       }
 
       if (!recurse) {
-        if (!lifo.len) {
-          lifo_free(&lifo);
+        if (!lifo.len)
           return;
-        }
 
         xylf_t context;
-        lifo_dequeue_fast(&lifo, &context);
+        lifo_pop(&lifo, &context);
         x = context.x;
         y = context.y;
         left = context.l;
@@ -292,14 +262,14 @@ static void flood_fill_seed(struct k_quirc *q, int x, int y,
  * Thresholding with Otsu's method
  */
 static uint8_t otsu_threshold(uint32_t *histogram, uint32_t total) {
-  double sum = 0;
+  float sum = 0;
   for (int i = 0; i < 256; i++) {
-    sum += (double)i * histogram[i];
+    sum += (float)i * histogram[i];
   }
 
-  double sumB = 0;
+  float sumB = 0;
   uint32_t wB = 0;
-  double varMax = 0;
+  float varMax = 0;
   uint8_t threshold = 0;
 
   for (int i = 0; i < 256; i++) {
@@ -311,12 +281,12 @@ static uint8_t otsu_threshold(uint32_t *histogram, uint32_t total) {
     if (wF == 0)
       break;
 
-    sumB += (double)i * histogram[i];
-    double mB = sumB / wB;
-    double mF = (sum - sumB) / wF;
-    double mDiff = mB - mF;
+    sumB += (float)i * histogram[i];
+    float mB = sumB / wB;
+    float mF = (sum - sumB) / wF;
+    float mDiff = mB - mF;
 
-    double varBetween = (double)wB * (double)wF * mDiff * mDiff;
+    float varBetween = (float)wB * (float)wF * mDiff * mDiff;
     if (varBetween >= varMax) {
       varMax = varBetween;
       threshold = i;
@@ -346,12 +316,14 @@ static void threshold(struct k_quirc *q, bool inverted) {
   int h = q->h;
   quirc_pixel_t *pixels = q->pixels;
 
+  /* XOR mask unifies inverted/non-inverted into a single comparison.
+   * Normal: pixel < threshold = black. Inverted: (pixel^0xFF) < threshold. */
+  uint8_t xor_mask = inverted ? 0xFF : 0x00;
+
 #ifdef K_QUIRC_BILINEAR_THRESHOLD
   int mid_x = w / 2;
   int mid_y = h / 2;
 
-  // Calculate symmetric sampling bounds around center (ignore border regions)
-  // Using half-widths ensures all 4 quadrants have equal area
   int half_w = (int)(w * (0.5f - K_QUIRC_THRESHOLD_MARGIN));
   int half_h = (int)(h * (0.5f - K_QUIRC_THRESHOLD_MARGIN));
   int sample_start_x = mid_x - half_w;
@@ -362,7 +334,6 @@ static void threshold(struct k_quirc *q, bool inverted) {
   uint32_t hist_tl[256] = {0}, hist_tr[256] = {0};
   uint32_t hist_bl[256] = {0}, hist_br[256] = {0};
 
-  // Build quadrant histograms from central region only
   for (int y = sample_start_y; y < sample_end_y; y++) {
     quirc_pixel_t *row = pixels + y * w;
     if (y < mid_y) {
@@ -378,61 +349,55 @@ static void threshold(struct k_quirc *q, bool inverted) {
     }
   }
 
-  // All quadrants have equal area: half_w * half_h
   uint32_t quad_pixels = (uint32_t)half_w * half_h;
 #ifdef K_QUIRC_ADAPTIVE_THRESHOLD
-  uint8_t t_tl = clamp_threshold(otsu_threshold(hist_tl, quad_pixels) + threshold_offset);
-  uint8_t t_tr = clamp_threshold(otsu_threshold(hist_tr, quad_pixels) + threshold_offset);
-  uint8_t t_bl = clamp_threshold(otsu_threshold(hist_bl, quad_pixels) + threshold_offset);
-  uint8_t t_br = clamp_threshold(otsu_threshold(hist_br, quad_pixels) + threshold_offset);
+  int t_tl = clamp_threshold(otsu_threshold(hist_tl, quad_pixels) + threshold_offset);
+  int t_tr = clamp_threshold(otsu_threshold(hist_tr, quad_pixels) + threshold_offset);
+  int t_bl = clamp_threshold(otsu_threshold(hist_bl, quad_pixels) + threshold_offset);
+  int t_br = clamp_threshold(otsu_threshold(hist_br, quad_pixels) + threshold_offset);
 #else
-  uint8_t t_tl = otsu_threshold(hist_tl, quad_pixels);
-  uint8_t t_tr = otsu_threshold(hist_tr, quad_pixels);
-  uint8_t t_bl = otsu_threshold(hist_bl, quad_pixels);
-  uint8_t t_br = otsu_threshold(hist_br, quad_pixels);
+  int t_tl = otsu_threshold(hist_tl, quad_pixels);
+  int t_tr = otsu_threshold(hist_tr, quad_pixels);
+  int t_bl = otsu_threshold(hist_bl, quad_pixels);
+  int t_br = otsu_threshold(hist_br, quad_pixels);
 #endif
 
-  float inv_w = 1.0f / (w - 1);
-  float inv_h = 1.0f / (h - 1);
+  /* Fixed-point 16.16 bilinear interpolation — all integer math */
+  int inv_h_dim = (h > 1) ? h - 1 : 1;
+  int tl_fp = t_tl << 16;
+  int tr_fp = t_tr << 16;
+  int dl_fp = ((t_bl - t_tl) << 16) / inv_h_dim;
+  int dr_fp = ((t_br - t_tr) << 16) / inv_h_dim;
+
+  int inv_w_dim = (w > 1) ? w - 1 : 1;
 
   for (int y = 0; y < h; y++) {
-    float fy = y * inv_h;
-    float t_left = t_tl + fy * (t_bl - t_tl);
-    float t_right = t_tr + fy * (t_br - t_tr);
+    int t_left_fp = tl_fp + y * dl_fp;
+    int t_right_fp = tr_fp + y * dr_fp;
+    int delta = t_right_fp - t_left_fp;
+    int dt_fp = delta / inv_w_dim;
+    int rem = delta - dt_fp * inv_w_dim;
+    int abs_rem = (rem >= 0) ? rem : -rem;
+    int step_corr = (rem >= 0) ? 1 : -1;
+    int error = 0;
+    int t_fp = t_left_fp;
 
     quirc_pixel_t *row = pixels + y * w;
 
-    if (inverted) {
-      int x = 0;
-      for (; x + 3 < w; x += 4) {
-        int t = (int)(t_left + x * inv_w * (t_right - t_left));
-        row[x]     = (row[x]     > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 1] = (row[x + 1] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 2] = (row[x + 2] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 3] = (row[x + 3] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-      }
-      for (; x < w; x++) {
-        int t = (int)(t_left + x * inv_w * (t_right - t_left));
-        row[x] = (row[x] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-      }
-    } else {
-      int x = 0;
-      for (; x + 3 < w; x += 4) {
-        int t = (int)(t_left + x * inv_w * (t_right - t_left));
-        row[x]     = (row[x]     < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 1] = (row[x + 1] < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 2] = (row[x + 2] < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-        row[x + 3] = (row[x + 3] < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-      }
-      for (; x < w; x++) {
-        int t = (int)(t_left + x * inv_w * (t_right - t_left));
-        row[x] = (row[x] < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
+    for (int x = 0; x < w; x++) {
+      int t = t_fp >> 16;
+      row[x] = ((row[x] ^ xor_mask) < t) ? QUIRC_PIXEL_BLACK
+                                           : QUIRC_PIXEL_WHITE;
+      t_fp += dt_fp;
+      error += abs_rem;
+      if (error >= inv_w_dim) {
+        t_fp += step_corr;
+        error -= inv_w_dim;
       }
     }
   }
 
 #else /* !K_QUIRC_BILINEAR_THRESHOLD */
-  // Calculate central region bounds (ignore border regions for histogram)
   int margin_x = (int)(w * K_QUIRC_THRESHOLD_MARGIN);
   int margin_y = (int)(h * K_QUIRC_THRESHOLD_MARGIN);
   int sample_start_x = margin_x;
@@ -440,7 +405,6 @@ static void threshold(struct k_quirc *q, bool inverted) {
   int sample_start_y = margin_y;
   int sample_end_y = h - margin_y;
 
-  // Build histogram from central region only
   uint32_t histogram[256] = {0};
   uint32_t sampled_pixels = 0;
   for (int y = sample_start_y; y < sample_end_y; y++) {
@@ -457,15 +421,10 @@ static void threshold(struct k_quirc *q, bool inverted) {
   uint8_t t = otsu_threshold(histogram, sampled_pixels);
 #endif
 
-  // Apply threshold to all pixels (not just sampled region)
   int total_pixels = w * h;
-  if (inverted) {
-    for (int i = 0; i < total_pixels; i++)
-      pixels[i] = (pixels[i] > t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-  } else {
-    for (int i = 0; i < total_pixels; i++)
-      pixels[i] = (pixels[i] < t) ? QUIRC_PIXEL_BLACK : QUIRC_PIXEL_WHITE;
-  }
+  for (int i = 0; i < total_pixels; i++)
+    pixels[i] = ((pixels[i] ^ xor_mask) < t) ? QUIRC_PIXEL_BLACK
+                                              : QUIRC_PIXEL_WHITE;
 #endif /* K_QUIRC_BILINEAR_THRESHOLD */
 }
 
@@ -935,9 +894,9 @@ static void setup_qr_perspective(struct k_quirc *q, int index) {
 }
 
 static float length(struct quirc_point a, struct quirc_point b) {
-  float x = abs(a.x - b.x) + 1;
-  float y = abs(a.y - b.y) + 1;
-  return sqrtf(x * x + y * y);
+  float dx = (float)(abs(a.x - b.x) + 1);
+  float dy = (float)(abs(a.y - b.y) + 1);
+  return sqrtf(dx * dx + dy * dy);
 }
 
 static void measure_grid_size(struct k_quirc *q, int index) {
@@ -949,14 +908,12 @@ static void measure_grid_size(struct k_quirc *q, int index) {
 
   float ab = length(b->corners[0], a->corners[3]);
   float capstone_ab_size = (length(b->corners[0], b->corners[3]) +
-                            length(a->corners[0], a->corners[3])) /
-                           2.0f;
+                            length(a->corners[0], a->corners[3])) * 0.5f;
   float ver_grid = 7.0f * ab / capstone_ab_size;
 
   float bc = length(b->corners[0], c->corners[1]);
   float capstone_bc_size = (length(b->corners[0], b->corners[1]) +
-                            length(c->corners[0], c->corners[1])) /
-                           2.0f;
+                            length(c->corners[0], c->corners[1])) * 0.5f;
   float hor_grid = 7.0f * bc / capstone_bc_size;
 
   float grid_size_estimate = (ver_grid + hor_grid) * 0.5f;

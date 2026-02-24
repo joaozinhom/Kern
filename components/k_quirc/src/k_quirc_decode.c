@@ -85,13 +85,13 @@ static const struct galois_field gf256 = {
  * Polynomial operations for Reed-Solomon
  */
 static void poly_add(uint8_t *dst, const uint8_t *src, uint8_t c, int shift,
-                     const struct galois_field *gf) {
+                     const struct galois_field *gf, int len) {
   int log_c = gf->log[c];
 
   if (!c)
     return;
 
-  for (int i = 0; i < MAX_POLY; i++) {
+  for (int i = 0; i < len; i++) {
     int p = i + shift;
     uint8_t v = src[i];
 
@@ -105,14 +105,14 @@ static void poly_add(uint8_t *dst, const uint8_t *src, uint8_t c, int shift,
 }
 
 static uint8_t poly_eval(const uint8_t *s, uint8_t x,
-                         const struct galois_field *gf) {
+                         const struct galois_field *gf, int len) {
   uint8_t sum = 0;
   uint8_t log_x = gf->log[x];
 
   if (!x)
     return s[0];
 
-  for (int i = 0; i < MAX_POLY; i++) {
+  for (int i = 0; i < len; i++) {
     uint8_t c = s[i];
 
     if (!c)
@@ -156,13 +156,13 @@ static void berlekamp_massey(const uint8_t *s, int N,
       uint8_t T[MAX_POLY];
 
       memcpy(T, C, sizeof(T));
-      poly_add(C, B, mult, m, gf);
+      poly_add(C, B, mult, m, gf, N);
       memcpy(B, T, sizeof(B));
       L = n + 1 - L;
       b = d;
       m = 1;
     } else {
-      poly_add(C, B, mult, m, gf);
+      poly_add(C, B, mult, m, gf, N);
       m++;
     }
   }
@@ -231,7 +231,7 @@ static k_quirc_error_t correct_block(uint8_t *data,
   berlekamp_massey(s, npar, &gf256, sigma);
 
   memset(sigma_deriv, 0, MAX_POLY);
-  for (int i = 0; i + 1 < MAX_POLY; i += 2)
+  for (int i = 0; i + 1 < npar; i += 2)
     sigma_deriv[i] = sigma[i + 1];
 
   eloc_poly(omega, s, sigma, npar - 1);
@@ -239,9 +239,9 @@ static k_quirc_error_t correct_block(uint8_t *data,
   for (int i = 0; i < ecc->bs; i++) {
     uint8_t xinv = gf256_exp[255 - i];
 
-    if (!poly_eval(sigma, xinv, &gf256)) {
-      uint8_t sd_x = poly_eval(sigma_deriv, xinv, &gf256);
-      uint8_t omega_x = poly_eval(omega, xinv, &gf256);
+    if (!poly_eval(sigma, xinv, &gf256, npar)) {
+      uint8_t sd_x = poly_eval(sigma_deriv, xinv, &gf256, npar);
+      uint8_t omega_x = poly_eval(omega, xinv, &gf256, npar);
       uint8_t error =
           gf256_exp[(255 - gf256_log[sd_x] + gf256_log[omega_x]) % 255];
 
@@ -291,7 +291,7 @@ static k_quirc_error_t correct_format(uint16_t *f_ret) {
   berlekamp_massey(s, FORMAT_SYNDROMES, &gf16, sigma);
 
   for (int i = 0; i < 15; i++)
-    if (!poly_eval(sigma, gf16_exp[15 - i], &gf16))
+    if (!poly_eval(sigma, gf16_exp[15 - i], &gf16, FORMAT_SYNDROMES))
       u ^= (1 << i);
 
   if (format_syndromes(u, s))
@@ -371,56 +371,6 @@ static int mask_bit(int mask, int i, int j) {
   return 0;
 }
 
-static int reserved_cell(int version, int i, int j) {
-  const struct quirc_version_info *ver = &quirc_version_db[version];
-  int size = version * 4 + 17;
-  int ai = -1, aj = -1, a;
-
-  if (i < 9 && j < 9)
-    return 1;
-  if (i < 9 && j >= size - 8)
-    return 1;
-  if (i >= size - 8 && j < 9)
-    return 1;
-
-  if (i == 6 || j == 6)
-    return 1;
-
-  if (version >= 7) {
-    if (i < 6 && j >= size - 11)
-      return 1;
-    if (i >= size - 11 && j < 6)
-      return 1;
-  }
-
-  a = 0;
-  while (a < QUIRC_MAX_ALIGNMENT && ver->apat[a])
-    a++;
-
-  if (a) {
-    int p;
-
-    for (p = 0; p < a; p++) {
-      if (abs(ver->apat[p] - i) < 3)
-        ai = p;
-      if (abs(ver->apat[p] - j) < 3)
-        aj = p;
-    }
-
-    if (ai >= 0 && aj >= 0) {
-      if (ai == 0 && aj == 0)
-        return 0;
-      if (ai == 0 && aj == a - 1)
-        return 0;
-      if (ai == a - 1 && aj == 0)
-        return 0;
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
 static void read_bit(const struct quirc_code *code, struct quirc_data *data,
                      struct datastream *ds, int i, int j) {
   int bitpos = ds->data_bits & 7;
@@ -436,19 +386,78 @@ static void read_bit(const struct quirc_code *code, struct quirc_data *data,
   ds->data_bits++;
 }
 
+static void build_reserved_bitmap(int version, int size, uint8_t *bitmap) {
+  memset(bitmap, 0, (size * size + 7) >> 3);
+  const struct quirc_version_info *ver = &quirc_version_db[version];
+
+  for (int j = 0; j < size; j++) {
+    for (int i = 0; i < size; i++) {
+      bool reserved = false;
+
+      if (i < 9 && j < 9)
+        reserved = true;
+      else if (i < 9 && j >= size - 8)
+        reserved = true;
+      else if (i >= size - 8 && j < 9)
+        reserved = true;
+      else if (i == 6 || j == 6)
+        reserved = true;
+
+      if (!reserved && version >= 7) {
+        if (i < 6 && j >= size - 11)
+          reserved = true;
+        else if (i >= size - 11 && j < 6)
+          reserved = true;
+      }
+
+      if (!reserved) {
+        int a = 0;
+        while (a < QUIRC_MAX_ALIGNMENT && ver->apat[a])
+          a++;
+
+        if (a) {
+          int ai = -1, aj = -1;
+          for (int p = 0; p < a; p++) {
+            if (abs(ver->apat[p] - i) < 3)
+              ai = p;
+            if (abs(ver->apat[p] - j) < 3)
+              aj = p;
+          }
+
+          if (ai >= 0 && aj >= 0) {
+            if (!((ai == 0 && aj == 0) || (ai == 0 && aj == a - 1) ||
+                  (ai == a - 1 && aj == 0)))
+              reserved = true;
+          }
+        }
+      }
+
+      if (reserved) {
+        int bit = j * size + i;
+        bitmap[bit >> 3] |= (1 << (bit & 7));
+      }
+    }
+  }
+}
+
 static void read_data(const struct quirc_code *code, struct quirc_data *data,
                       struct datastream *ds) {
   int y = code->size - 1;
   int x = code->size - 1;
   int dir = -1;
+  uint8_t reserved[K_QUIRC_MAX_BITMAP];
+
+  build_reserved_bitmap(data->version, code->size, reserved);
 
   while (x > 0) {
     if (x == 6)
       x--;
 
-    if (!reserved_cell(data->version, y, x))
+    int bit0 = y * code->size + x;
+    if (!((reserved[bit0 >> 3] >> (bit0 & 7)) & 1))
       read_bit(code, data, ds, y, x);
-    if (!reserved_cell(data->version, y, x - 1))
+    int bit1 = y * code->size + x - 1;
+    if (!((reserved[bit1 >> 3] >> (bit1 & 7)) & 1))
       read_bit(code, data, ds, y, x - 1);
 
     y += dir;

@@ -26,6 +26,8 @@ void k_quirc_destroy(k_quirc_t *q) {
       K_FREE(q->image);
     if (sizeof(*q->image) != sizeof(*q->pixels) && q->pixels)
       K_FREE(q->pixels);
+    if (q->flood_fill_stack)
+      K_FREE(q->flood_fill_stack);
     K_FREE(q);
   }
 }
@@ -48,6 +50,16 @@ int k_quirc_resize(k_quirc_t *q, int w, int h) {
       return -1;
     }
     q->pixels = new_pixels;
+  }
+
+  if (!q->flood_fill_stack) {
+    /* Each flood-fill stack entry is {int16_t x, y, l, r} = 8 bytes */
+    q->flood_fill_stack =
+        K_MALLOC(QUIRC_FLOOD_FILL_STACK * 8);
+    if (!q->flood_fill_stack) {
+      K_FREE(new_image);
+      return -1;
+    }
   }
 
   q->image = new_image;

@@ -51,6 +51,7 @@
 #define QUIRC_PERSPECTIVE_PARAMS 8
 #define QUIRC_MAX_VERSION 24
 #define QUIRC_MAX_ALIGNMENT 7
+#define QUIRC_FLOOD_FILL_STACK 8192
 
 #if QUIRC_MAX_REGIONS < UINT8_MAX
 typedef uint8_t quirc_pixel_t;
@@ -114,6 +115,7 @@ struct quirc_data {
 struct k_quirc {
   uint8_t *image;
   quirc_pixel_t *pixels;
+  uint8_t *flood_fill_stack;
   int w;
   int h;
   int num_regions;
