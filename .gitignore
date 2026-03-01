@@ -10,3 +10,6 @@ compile_commands.json
 
 .vscode
 .clangd
+esp-idf/
+.idf-tools/
+.idf-venv/
