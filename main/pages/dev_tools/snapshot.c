@@ -137,13 +137,14 @@ static esp_err_t save_pgm_file(const uint8_t *gray_data, const char *path) {
 
 static void horizontal_crop(const uint8_t *camera_buf, uint8_t *display_buf,
                             uint32_t camera_width, uint32_t camera_height) {
-  uint32_t crop_offset = (camera_width - CAMERA_WIDTH) / 2;
+  uint32_t crop_x = (camera_width - CAMERA_WIDTH) / 2;
+  uint32_t crop_y = (camera_height - CAMERA_HEIGHT) / 2;
   const uint16_t *src = (const uint16_t *)camera_buf;
   uint16_t *dst = (uint16_t *)display_buf;
 
-  for (uint32_t y = 0; y < camera_height; y++) {
-    memcpy(dst + y * CAMERA_WIDTH, src + y * camera_width + crop_offset,
-           CAMERA_WIDTH * 2);
+  for (uint32_t y = 0; y < CAMERA_HEIGHT; y++) {
+    memcpy(dst + y * CAMERA_WIDTH,
+           src + (y + crop_y) * camera_width + crop_x, CAMERA_WIDTH * 2);
   }
 }
 

@@ -673,12 +673,14 @@ static void horizontal_crop_cam_to_display(const uint8_t *camera_buf,
                                            uint32_t camera_width,
                                            uint32_t camera_height,
                                            uint32_t display_width) {
-  uint32_t crop_offset = (camera_width - display_width) / 2;
+  uint32_t display_height = display_width; // square display
+  uint32_t crop_x = (camera_width - display_width) / 2;
+  uint32_t crop_y = (camera_height - display_height) / 2;
   const uint16_t *src = (const uint16_t *)camera_buf;
   uint16_t *dst = (uint16_t *)display_buf;
 
-  for (uint32_t y = 0; y < camera_height; y++) {
-    const uint16_t *src_row = src + (y * camera_width) + crop_offset;
+  for (uint32_t y = 0; y < display_height; y++) {
+    const uint16_t *src_row = src + ((y + crop_y) * camera_width) + crop_x;
     uint16_t *dst_row = dst + (y * display_width);
     memcpy(dst_row, src_row, display_width * 2);
   }
