@@ -41,7 +41,6 @@ lv_obj_t *theme_create_page_title(lv_obj_t *parent, const char *text);
 void theme_apply_transparent_container(lv_obj_t *obj);
 lv_obj_t *theme_create_flex_row(lv_obj_t *parent);
 lv_obj_t *theme_create_flex_column(lv_obj_t *parent);
-lv_obj_t *theme_create_separator(lv_obj_t *parent);
 lv_obj_t *theme_create_dropdown(lv_obj_t *parent, const char *options);
 
 #endif // THEME_H

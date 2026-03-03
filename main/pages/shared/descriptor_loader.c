@@ -1,5 +1,6 @@
 #include "descriptor_loader.h"
 #include "../../../components/cUR/src/types/output.h"
+#include "../../core/key.h"
 #include "../../qr/parser.h"
 #include "../../qr/scanner.h"
 #include "../../ui/assets/icons_24.h"
@@ -130,14 +131,23 @@ static void descriptor_info_confirm_wrapper(const descriptor_info_t *info,
                         LV_FLEX_ALIGN_START);
   lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLLABLE);
 
+  // Get current wallet fingerprint for highlighting
+  char my_fp[9] = {0};
+  key_get_fingerprint_hex(my_fp);
+
   // Key entries
   for (uint32_t i = 0; i < info->num_keys; i++) {
     // Letter + fingerprint on same row
     char letter_fp[20];
     snprintf(letter_fp, sizeof(letter_fp), "%c: %s", 'A' + (char)i,
              info->keys[i].fingerprint_hex);
-    ui_icon_text_row_create(scroll, ICON_FINGERPRINT, letter_fp,
-                            highlight_color());
+    bool is_ours = (my_fp[0] != '\0' &&
+                    strcasecmp(my_fp, info->keys[i].fingerprint_hex) == 0);
+    lv_obj_t *fp_row =
+        ui_icon_text_row_create(scroll, ICON_FINGERPRINT, letter_fp,
+                                is_ours ? highlight_color() : main_color());
+    if (i > 0)
+      lv_obj_set_style_pad_top(fp_row, 12, 0);
 
     // Trimmed xpub (indented)
     char trimmed[24];
@@ -151,11 +161,6 @@ static void descriptor_info_confirm_wrapper(const descriptor_info_t *info,
     lv_obj_t *deriv_row = ui_icon_text_row_create(
         scroll, ICON_DERIVATION, info->keys[i].derivation, secondary_color());
     lv_obj_set_style_pad_left(deriv_row, 20, 0);
-
-    // Separator between keys (except after last)
-    if (i < info->num_keys - 1) {
-      theme_create_separator(scroll);
-    }
   }
 
   // Button row (fixed at bottom)

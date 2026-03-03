@@ -288,17 +288,3 @@ lv_obj_t *theme_create_dropdown(lv_obj_t *parent, const char *options) {
   lv_obj_add_event_cb(dd, dropdown_open_cb, LV_EVENT_READY, NULL);
   return dd;
 }
-
-lv_obj_t *theme_create_separator(lv_obj_t *parent) {
-  if (!parent)
-    return NULL;
-
-  lv_obj_t *separator = lv_obj_create(parent);
-  lv_obj_set_size(separator, LV_PCT(90), 1);
-  lv_obj_set_style_bg_color(separator, COLOR_WHITE, 0);
-  lv_obj_set_style_bg_opa(separator, LV_OPA_50, 0);
-  lv_obj_set_style_border_width(separator, 0, 0);
-  lv_obj_set_style_radius(separator, 0, 0);
-
-  return separator;
-}
