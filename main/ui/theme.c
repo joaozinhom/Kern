@@ -198,7 +198,7 @@ lv_obj_t *theme_create_button(lv_obj_t *parent, const char *text,
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
     lv_obj_center(label);
-    theme_apply_label(label, false);
+    theme_apply_button_label(label, false);
   }
 
   return btn;

@@ -1,10 +1,14 @@
 // Login Settings Page - Pre-login configuration (default wallet preferences)
 
 #include "login_settings.h"
+#include "../../core/pin.h"
+#include "../../core/session.h"
 #include "../../core/settings.h"
 #include "../../ui/input_helpers.h"
 #include "../../ui/menu.h"
 #include "../../ui/theme.h"
+#include "../pin/pin_page.h"
+#include "../pin/pin_settings.h"
 #include <bsp/display.h>
 #include <lvgl.h>
 
@@ -159,6 +163,51 @@ static void destroy_brightness_page(void) {
   brightness_label = NULL;
 }
 
+// ── PIN setup/settings ──
+
+static void rebuild_menu(void);
+
+static void pin_setup_complete(void) {
+  pin_page_destroy();
+  // Start session timeout after PIN setup
+  uint16_t timeout = pin_get_session_timeout();
+  if (timeout > 0)
+    session_start(timeout);
+  rebuild_menu();
+}
+
+static void pin_setup_cancel(void) {
+  pin_page_destroy();
+  ui_menu_show(settings_menu);
+}
+
+static void setup_pin_cb(void) {
+  ui_menu_hide(settings_menu);
+  pin_page_create(lv_screen_active(), PIN_PAGE_SETUP, pin_setup_complete,
+                  pin_setup_cancel);
+}
+
+static void pin_settings_return(void) {
+  pin_settings_page_destroy();
+  rebuild_menu();
+}
+
+static void pin_settings_verified(void) {
+  pin_page_destroy();
+  pin_settings_page_create(lv_screen_active(), pin_settings_return);
+}
+
+static void pin_settings_cancel(void) {
+  pin_page_destroy();
+  ui_menu_show(settings_menu);
+}
+
+static void pin_settings_cb(void) {
+  ui_menu_hide(settings_menu);
+  pin_page_create(lv_screen_active(), PIN_PAGE_UNLOCK, pin_settings_verified,
+                  pin_settings_cancel);
+}
+
 // ── Category menu callbacks ──
 
 static void default_wallet_cb(void) { show_detail_page(); }
@@ -169,14 +218,27 @@ static void settings_back_cb(void) {
     return_callback();
 }
 
+static void rebuild_menu(void) {
+  if (settings_menu) {
+    ui_menu_destroy(settings_menu);
+    settings_menu = NULL;
+  }
+  settings_menu = ui_menu_create(settings_screen, "Settings", settings_back_cb);
+  if (pin_is_configured()) {
+    ui_menu_add_entry(settings_menu, "PIN Settings", pin_settings_cb);
+  } else {
+    ui_menu_add_entry(settings_menu, "Set Up PIN", setup_pin_cb);
+  }
+  ui_menu_add_entry(settings_menu, "Default Wallet", default_wallet_cb);
+  ui_menu_add_entry(settings_menu, "Screen Brightness", brightness_cb);
+}
+
 // ── Public lifecycle ──
 
 void login_settings_page_create(lv_obj_t *parent, void (*return_cb)(void)) {
   return_callback = return_cb;
   settings_screen = theme_create_page_container(parent);
-  settings_menu = ui_menu_create(settings_screen, "Settings", settings_back_cb);
-  ui_menu_add_entry(settings_menu, "Default Wallet", default_wallet_cb);
-  ui_menu_add_entry(settings_menu, "Screen Brightness", brightness_cb);
+  rebuild_menu();
 }
 
 void login_settings_page_show(void) {
@@ -190,6 +252,7 @@ void login_settings_page_hide(void) {
 }
 
 void login_settings_page_destroy(void) {
+  pin_settings_page_destroy();
   destroy_detail_page();
   destroy_brightness_page();
   if (settings_menu) {

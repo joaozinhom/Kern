@@ -43,6 +43,7 @@ bool wallet_get_scriptpubkey(bool is_change, uint32_t index,
 uint32_t wallet_get_account(void);
 bool wallet_set_account(uint32_t account);
 void wallet_cleanup(void);
+void wallet_unload(void);
 
 // Policy management
 wallet_policy_t wallet_get_policy(void);

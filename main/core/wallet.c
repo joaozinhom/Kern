@@ -201,6 +201,11 @@ void wallet_cleanup(void) {
   wallet_account = 0;
 }
 
+void wallet_unload(void) {
+  key_unload();
+  wallet_cleanup();
+}
+
 // Policy management
 wallet_policy_t wallet_get_policy(void) { return wallet_policy; }
 

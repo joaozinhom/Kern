@@ -55,7 +55,7 @@ static void menu_sign_cb(void) {
 static void reboot_confirmed_cb(bool result, void *user_data) {
   (void)user_data;
   if (result) {
-    key_unload();
+    wallet_unload();
     esp_restart();
   }
 }

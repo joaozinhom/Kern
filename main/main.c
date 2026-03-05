@@ -1,7 +1,12 @@
+#include "core/pin.h"
+#include "core/session.h"
+#include "core/wallet.h"
 #include "core/settings.h"
 #include "pages/login/login.h"
+#include "pages/pin/pin_page.h"
 #include "ui/assets/kern_logo_lvgl.h"
 #include "ui/theme.h"
+#include "utils/bip39_filter.h"
 #include <bsp/display.h>
 #include <bsp/esp-bsp.h>
 #include <esp_check.h>
@@ -14,6 +19,31 @@
 #include <wally_core.h>
 
 static const char *TAG = "KERN_MAIN";
+
+// ---------------------------------------------------------------------------
+// Session expiry: lock the device and require PIN re-entry
+// ---------------------------------------------------------------------------
+
+static void session_expired_handler(void);
+
+static void post_unlock_cb(void) {
+  pin_page_destroy();
+
+  // Start session timeout
+  uint16_t timeout = pin_get_session_timeout();
+  if (timeout > 0)
+    session_start(timeout);
+
+  login_page_create(lv_screen_active());
+}
+
+static void session_expired_handler(void) {
+  wallet_unload();
+  lv_obj_clean(lv_screen_active());
+  pin_page_create(lv_screen_active(), PIN_PAGE_UNLOCK, post_unlock_cb, NULL);
+}
+
+// ---------------------------------------------------------------------------
 
 void app_main(void) {
   // Initialize NVS for persistent settings
@@ -71,14 +101,27 @@ void app_main(void) {
     abort();
   }
 
+  // Initialize BIP39 wordlist (needed for anti-phishing words)
+  bip39_filter_init();
+
+  // Initialize PIN module
+  pin_init();
+
+  // Set up session expiry callback
+  session_set_expired_callback(session_expired_handler);
+
   // Lock display again for modifications
   lvgl_port_lock(0);
 
-  // Clear the screen and show login page
+  // Clear the screen
   lv_obj_clean(screen);
 
-  // Create and show the login page as a demonstration
-  login_page_create(screen);
+  // PIN gate: if PIN is configured, require unlock before login
+  if (pin_is_configured()) {
+    pin_page_create(screen, PIN_PAGE_UNLOCK, post_unlock_cb, NULL);
+  } else {
+    login_page_create(screen);
+  }
 
   // Unlock display
   lvgl_port_unlock();
