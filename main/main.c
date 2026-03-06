@@ -4,6 +4,7 @@
 #include "core/settings.h"
 #include "pages/login/login.h"
 #include "pages/pin/pin_page.h"
+#include "pages/screensaver.h"
 #include "ui/assets/kern_logo_lvgl.h"
 #include "ui/theme.h"
 #include "utils/bip39_filter.h"
@@ -37,10 +38,14 @@ static void post_unlock_cb(void) {
   login_page_create(lv_screen_active());
 }
 
+static void screensaver_dismissed_cb(void) {
+  pin_page_create(lv_screen_active(), PIN_PAGE_UNLOCK, post_unlock_cb, NULL);
+}
+
 static void session_expired_handler(void) {
   wallet_unload();
   lv_obj_clean(lv_screen_active());
-  pin_page_create(lv_screen_active(), PIN_PAGE_UNLOCK, post_unlock_cb, NULL);
+  screensaver_create(lv_screen_active(), screensaver_dismissed_cb);
 }
 
 // ---------------------------------------------------------------------------
