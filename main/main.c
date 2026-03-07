@@ -1,7 +1,7 @@
 #include "core/pin.h"
 #include "core/session.h"
-#include "core/wallet.h"
 #include "core/settings.h"
+#include "core/wallet.h"
 #include "pages/login/login.h"
 #include "pages/pin/pin_page.h"
 #include "pages/screensaver.h"

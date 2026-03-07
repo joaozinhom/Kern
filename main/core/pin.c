@@ -1,14 +1,15 @@
 // PIN authentication with split-PIN anti-phishing
 
 #include "pin.h"
+#include "../utils/secure_mem.h"
 #include "crypto_utils.h"
 #include "settings.h"
 #include "storage.h"
-#include "../utils/secure_mem.h"
 
 #include <esp_efuse.h>
 #include <esp_hmac.h>
 #include <esp_log.h>
+#include <esp_system.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <string.h>
@@ -39,8 +40,8 @@ static bool initialized = false;
 // Compute device salt via HMAC peripheral or deterministic fallback
 static esp_err_t compute_device_salt(uint8_t salt_out[PIN_HASH_SIZE]) {
   uint8_t tag_hash[PIN_HASH_SIZE];
-  int rc = crypto_sha256((const uint8_t *)HMAC_SALT_TAG,
-                         strlen(HMAC_SALT_TAG), tag_hash);
+  int rc = crypto_sha256((const uint8_t *)HMAC_SALT_TAG, strlen(HMAC_SALT_TAG),
+                         tag_hash);
   if (rc != CRYPTO_OK) {
     secure_memzero(tag_hash, sizeof(tag_hash));
     return ESP_FAIL;
@@ -103,9 +104,8 @@ esp_err_t pin_efuse_provision(void) {
   uint8_t key[32];
   crypto_random_bytes(key, sizeof(key));
 
-  esp_err_t err = esp_efuse_write_key(EFUSE_BLK_KEY5,
-                                      ESP_EFUSE_KEY_PURPOSE_HMAC_UP,
-                                      key, sizeof(key));
+  esp_err_t err = esp_efuse_write_key(
+      EFUSE_BLK_KEY5, ESP_EFUSE_KEY_PURPOSE_HMAC_UP, key, sizeof(key));
   secure_memzero(key, sizeof(key));
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to write eFuse key: %s", esp_err_to_name(err));
@@ -115,7 +115,12 @@ esp_err_t pin_efuse_provision(void) {
   // Read-protect so key can only be used by HMAC peripheral
   err = esp_efuse_set_key_dis_read(EFUSE_BLK_KEY5);
   if (err != ESP_OK)
-    ESP_LOGW(TAG, "Failed to read-protect eFuse key: %s",
+    ESP_LOGW(TAG, "Failed to read-protect eFuse key: %s", esp_err_to_name(err));
+
+  // Write-protect so key cannot be modified via flash access
+  err = esp_efuse_set_key_dis_write(EFUSE_BLK_KEY5);
+  if (err != ESP_OK)
+    ESP_LOGW(TAG, "Failed to write-protect eFuse key: %s",
              esp_err_to_name(err));
 
   // Track in NVS
@@ -148,8 +153,8 @@ esp_err_t pin_compute_anti_phishing(const char *prefix, size_t len,
 
   // HMAC(KEY5, prefix_hash)
   uint8_t hmac_out[32];
-  esp_err_t err = esp_hmac_calculate(HMAC_KEY5, prefix_hash,
-                                     sizeof(prefix_hash), hmac_out);
+  esp_err_t err =
+      esp_hmac_calculate(HMAC_KEY5, prefix_hash, sizeof(prefix_hash), hmac_out);
   secure_memzero(prefix_hash, sizeof(prefix_hash));
   if (err != ESP_OK) {
     secure_memzero(hmac_out, sizeof(hmac_out));
@@ -157,8 +162,8 @@ esp_err_t pin_compute_anti_phishing(const char *prefix, size_t len,
   }
 
   // Extract two 11-bit indices from first 3 bytes (22 bits used)
-  uint32_t val = ((uint32_t)hmac_out[0] << 16) |
-                 ((uint32_t)hmac_out[1] << 8) | hmac_out[2];
+  uint32_t val = ((uint32_t)hmac_out[0] << 16) | ((uint32_t)hmac_out[1] << 8) |
+                 hmac_out[2];
 
   // Extract identicon data from bytes 3-5
   if (identicon_out) {
@@ -171,14 +176,20 @@ esp_err_t pin_compute_anti_phishing(const char *prefix, size_t len,
 
   uint16_t index1 = (val >> 11) & 0x7FF;
   uint16_t index2 = val & 0x7FF;
+  val = 0;
 
   // Look up BIP39 words
   struct words *wordlist = NULL;
-  if (bip39_get_wordlist(NULL, &wordlist) != WALLY_OK || !wordlist)
+  if (bip39_get_wordlist(NULL, &wordlist) != WALLY_OK || !wordlist) {
+    index1 = 0;
+    index2 = 0;
     return ESP_FAIL;
+  }
 
   *word1_out = bip39_get_word_by_index(wordlist, index1);
   *word2_out = bip39_get_word_by_index(wordlist, index2);
+  index1 = 0;
+  index2 = 0;
 
   if (!*word1_out || !*word2_out)
     return ESP_FAIL;
@@ -250,7 +261,7 @@ esp_err_t pin_setup(const char *pin, size_t len, uint8_t split_pos) {
 }
 
 pin_verify_result_t pin_verify(const char *pin, size_t len) {
-  if (!initialized || !pin || len == 0)
+  if (!initialized || !pin || len == 0 || len > PIN_MAX_LENGTH)
     return PIN_VERIFY_WRONG;
 
   uint8_t fail_cnt = 0;
@@ -259,29 +270,50 @@ pin_verify_result_t pin_verify(const char *pin, size_t len) {
   uint8_t max_fail = PIN_DEFAULT_MAX_FAILURES;
   nvs_get_u8(pin_nvs, KEY_MAX_FAIL, &max_fail);
 
-  // Compute device salt
+  // Pre-increment failure count and commit before the slow PBKDF2 so that
+  // a power-cut during verification cannot gift the attacker a free attempt.
+  uint8_t pending_cnt = (fail_cnt < 255) ? fail_cnt + 1 : fail_cnt;
+  nvs_set_u8(pin_nvs, KEY_FAIL_CNT, pending_cnt);
+  nvs_commit(pin_nvs);
+
+  // Always run PBKDF2 to prevent timing oracle at wipe threshold
   uint8_t salt[PIN_HASH_SIZE];
   if (compute_device_salt(salt) != ESP_OK) {
     secure_memzero(salt, sizeof(salt));
+    if (pending_cnt >= max_fail) {
+      pin_wipe_all();
+      return PIN_VERIFY_WIPED; // unreachable
+    }
     return PIN_VERIFY_WRONG;
   }
 
-  // Hash the attempt
   uint8_t attempt_hash[PIN_HASH_SIZE];
-  int rc = crypto_pbkdf2_sha256((const uint8_t *)pin, len, salt, sizeof(salt),
-                                PIN_PBKDF2_ITERATIONS, attempt_hash,
-                                PIN_HASH_SIZE);
+  int rc =
+      crypto_pbkdf2_sha256((const uint8_t *)pin, len, salt, sizeof(salt),
+                           PIN_PBKDF2_ITERATIONS, attempt_hash, PIN_HASH_SIZE);
   secure_memzero(salt, sizeof(salt));
   if (rc != CRYPTO_OK) {
     secure_memzero(attempt_hash, sizeof(attempt_hash));
+    if (pending_cnt >= max_fail) {
+      pin_wipe_all();
+      return PIN_VERIFY_WIPED; // unreachable
+    }
     return PIN_VERIFY_WRONG;
+  }
+
+  // Check wipe threshold after PBKDF2 (uniform timing)
+  if (pending_cnt >= max_fail) {
+    secure_memzero(attempt_hash, sizeof(attempt_hash));
+    ESP_LOGW(TAG, "Max failures reached (%u/%u), wiping device", pending_cnt,
+             max_fail);
+    pin_wipe_all();
+    return PIN_VERIFY_WIPED; // unreachable
   }
 
   // Load stored hash
   uint8_t stored_hash[PIN_HASH_SIZE];
   size_t hash_len = PIN_HASH_SIZE;
-  esp_err_t err =
-      nvs_get_blob(pin_nvs, KEY_PIN_HASH, stored_hash, &hash_len);
+  esp_err_t err = nvs_get_blob(pin_nvs, KEY_PIN_HASH, stored_hash, &hash_len);
   if (err != ESP_OK || hash_len != PIN_HASH_SIZE) {
     secure_memzero(attempt_hash, sizeof(attempt_hash));
     secure_memzero(stored_hash, sizeof(stored_hash));
@@ -294,26 +326,13 @@ pin_verify_result_t pin_verify(const char *pin, size_t len) {
   secure_memzero(stored_hash, sizeof(stored_hash));
 
   if (match == 0) {
-    // Reset failure count on success
+    // Correct PIN — roll back the pre-incremented failure count
     nvs_set_u8(pin_nvs, KEY_FAIL_CNT, 0);
     nvs_commit(pin_nvs);
     return PIN_VERIFY_OK;
   }
 
-  // Wrong PIN — increment failure count (saturate at 255)
-  if (fail_cnt < 255)
-    fail_cnt++;
-  nvs_set_u8(pin_nvs, KEY_FAIL_CNT, fail_cnt);
-  nvs_commit(pin_nvs);
-
-  if (fail_cnt >= max_fail) {
-    ESP_LOGW(TAG, "Max failures reached (%u/%u), wiping device",
-             fail_cnt, max_fail);
-    pin_wipe_all();
-    return PIN_VERIFY_WIPED;
-  }
-
-  // Progressive delay applies after any failure
+  // Wrong PIN — failure count was already persisted above
   return PIN_VERIFY_DELAY;
 }
 
@@ -427,5 +446,6 @@ esp_err_t pin_wipe_all(void) {
   storage_init(); // Ensure SPIFFS is mounted
   storage_wipe_flash();
 
-  return ESP_OK;
+  esp_restart();
+  return ESP_OK; // unreachable
 }

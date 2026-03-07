@@ -49,6 +49,8 @@ static lv_obj_t *content_area = NULL;
 
 // Delay countdown
 static lv_timer_t *delay_timer = NULL;
+// Reveal pause (anti-phishing keyboard hide)
+static lv_timer_t *reveal_timer = NULL;
 static lv_obj_t *delay_label = NULL;
 static uint32_t delay_remaining_sec = 0;
 
@@ -88,7 +90,8 @@ static lv_draw_buf_t *setup_identicon_draw_buf = NULL; // setup words page
 static lv_obj_t *words_label = NULL;
 static lv_obj_t *words_warning = NULL;
 static bool words_visible = false;
-static char keystroke_cache[PIN_MAX_LENGTH + 1]; // prefix cache for change detection
+static char
+    keystroke_cache[PIN_MAX_LENGTH + 1]; // prefix cache for change detection
 static int keystroke_cache_len = 0;
 
 // Processing overlay (shown during slow crypto operations)
@@ -111,6 +114,26 @@ static void build_delay_state(void);
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Overwrite LVGL textarea content before clearing to prevent PIN plaintext
+// from lingering in freed heap memory.
+static void secure_clear_textarea(lv_obj_t *textarea) {
+  if (!textarea)
+    return;
+  const char *text = lv_textarea_get_text(textarea);
+  size_t len = text ? strlen(text) : 0;
+  if (len > 0) {
+    // Overwrite with spaces (same length forces LVGL to reuse the buffer)
+    char dummy[PIN_MAX_LENGTH + 1];
+    if (len > PIN_MAX_LENGTH)
+      len = PIN_MAX_LENGTH;
+    memset(dummy, ' ', len);
+    dummy[len] = '\0';
+    lv_textarea_set_text(textarea, dummy);
+    secure_memzero(dummy, sizeof(dummy));
+  }
+  lv_textarea_set_text(textarea, "");
+}
+
 static void destroy_text_input(void) {
   if (text_input_active) {
     ui_text_input_destroy(&text_input);
@@ -120,6 +143,10 @@ static void destroy_text_input(void) {
 }
 
 static void clear_state(void) {
+  if (reveal_timer) {
+    lv_timer_delete(reveal_timer);
+    reveal_timer = NULL;
+  }
   if (delay_timer) {
     lv_timer_delete(delay_timer);
     delay_timer = NULL;
@@ -264,7 +291,7 @@ static void input_ready_cb(lv_event_t *e) {
     prefix_len = (int)len;
     suffix_len = 0;
     suffix_buf[0] = '\0';
-    lv_textarea_set_text(text_input.textarea, "");
+    secure_clear_textarea(text_input.textarea);
     show_processing(deferred_verify_cb);
     break;
   }
@@ -277,22 +304,21 @@ static void input_ready_cb(lv_event_t *e) {
     memcpy(setup_pin, text, len);
     setup_pin[len] = '\0';
     setup_pin_len = (int)len;
-    lv_textarea_set_text(text_input.textarea, "");
+    secure_clear_textarea(text_input.textarea);
     transition_to(STATE_SETUP_CONFIRM_PIN);
     break;
   }
 
   case STATE_SETUP_CONFIRM_PIN: {
-    if ((int)len != setup_pin_len ||
-        secure_memcmp(text, setup_pin, len) != 0) {
+    if ((int)len != setup_pin_len || secure_memcmp(text, setup_pin, len) != 0) {
       secure_memzero(setup_pin, sizeof(setup_pin));
       setup_pin_len = 0;
-      lv_textarea_set_text(text_input.textarea, "");
+      secure_clear_textarea(text_input.textarea);
       dialog_show_error("PINs don't match", NULL, 1500);
       transition_to(STATE_SETUP_FULL_PIN);
       return;
     }
-    lv_textarea_set_text(text_input.textarea, "");
+    secure_clear_textarea(text_input.textarea);
     split_pos = setup_pin_len / 2;
     if (split_pos < 1)
       split_pos = 1;
@@ -351,7 +377,8 @@ static void render_identicon_to(lv_obj_t *canvas, lv_draw_buf_t *draw_buf,
   // Build 5x5 grid with vertical mirror:
   // col 0 = mirror of col 4, col 1 = mirror of col 3, col 2 = center
   // Independent columns: 0, 1, 2 → bits layout: row0col0, row0col1, row0col2,
-  //                                              row1col0, row1col1, row1col2, ...
+  //                                              row1col0, row1col1, row1col2,
+  //                                              ...
   bool cells[IDENTICON_CELLS][IDENTICON_CELLS];
   int bit_idx = 0;
   for (int row = 0; row < IDENTICON_CELLS; row++) {
@@ -386,6 +413,15 @@ static void render_identicon_to(lv_obj_t *canvas, lv_draw_buf_t *draw_buf,
 // Inline anti-phishing words (shown during unlock as user types)
 // ---------------------------------------------------------------------------
 
+static void reveal_restore_cb(lv_timer_t *timer) {
+  (void)timer;
+  reveal_timer = NULL;
+  if (text_input.keyboard)
+    lv_obj_clear_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
+  if (text_input.textarea)
+    lv_obj_clear_state(text_input.textarea, LV_STATE_DISABLED);
+}
+
 static void pin_keystroke_cb(lv_event_t *e) {
   (void)e;
   if (!text_input.textarea)
@@ -396,9 +432,9 @@ static void pin_keystroke_cb(lv_event_t *e) {
 
   if (len >= split_pos && split_pos > 0) {
     // Check if prefix portion changed since last computation
-    bool prefix_changed =
-        !words_visible || keystroke_cache_len != (int)split_pos ||
-        memcmp(keystroke_cache, text, split_pos) != 0;
+    bool prefix_changed = !words_visible ||
+                          keystroke_cache_len != (int)split_pos ||
+                          memcmp(keystroke_cache, text, split_pos) != 0;
     if (prefix_changed) {
       const char *word1 = NULL;
       const char *word2 = NULL;
@@ -414,6 +450,11 @@ static void pin_keystroke_cb(lv_event_t *e) {
         lv_obj_clear_flag(words_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(words_warning, LV_OBJ_FLAG_HIDDEN);
         words_visible = true;
+        // Pause: hide keyboard and disable textarea for 2s to draw attention
+        lv_obj_add_flag(text_input.keyboard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_state(text_input.textarea, LV_STATE_DISABLED);
+        reveal_timer = lv_timer_create(reveal_restore_cb, 2000, NULL);
+        lv_timer_set_repeat_count(reveal_timer, 1);
         // Cache prefix for change detection (separate from prefix_buf)
         memcpy(keystroke_cache, text, split_pos);
         keystroke_cache[split_pos] = '\0';
@@ -456,9 +497,8 @@ static void build_unlock_entry_state(void) {
   lv_obj_add_flag(words_container, LV_OBJ_FLAG_HIDDEN);
 
   // Identicon canvas (120x120 RGB565)
-  identicon_draw_buf = lv_draw_buf_create(IDENTICON_SIZE, IDENTICON_SIZE,
-                                          LV_COLOR_FORMAT_RGB565,
-                                          LV_STRIDE_AUTO);
+  identicon_draw_buf = lv_draw_buf_create(
+      IDENTICON_SIZE, IDENTICON_SIZE, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
   if (identicon_draw_buf) {
     identicon_canvas = lv_canvas_create(words_container);
     lv_canvas_set_draw_buf(identicon_canvas, identicon_draw_buf);
@@ -595,8 +635,8 @@ static void build_split_state(void) {
   // PIN display row: label + eye toggle
   lv_obj_t *display_row = theme_create_flex_row(content_area);
   lv_obj_set_width(display_row, LV_PCT(80));
-  lv_obj_set_flex_align(display_row, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(display_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
 
   split_display_label = lv_label_create(display_row);
   lv_obj_set_style_text_font(split_display_label, theme_font_medium(), 0);
@@ -624,11 +664,13 @@ static void build_split_state(void) {
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   left_btn = theme_create_button(btn_row, LV_SYMBOL_LEFT, false);
-  lv_obj_set_size(left_btn, theme_get_button_width(), theme_get_button_height());
+  lv_obj_set_size(left_btn, theme_get_button_width(),
+                  theme_get_button_height());
   lv_obj_add_event_cb(left_btn, split_left_cb, LV_EVENT_CLICKED, NULL);
 
   right_btn = theme_create_button(btn_row, LV_SYMBOL_RIGHT, false);
-  lv_obj_set_size(right_btn, theme_get_button_width(), theme_get_button_height());
+  lv_obj_set_size(right_btn, theme_get_button_width(),
+                  theme_get_button_height());
   lv_obj_add_event_cb(right_btn, split_right_cb, LV_EVENT_CLICKED, NULL);
 
   // Confirm button
@@ -680,8 +722,7 @@ static void setup_words_confirm_result(bool confirmed, void *user_data) {
 static void setup_words_continue_cb(lv_event_t *e) {
   (void)e;
   dialog_show_confirm("Have you recorded these words?",
-                      setup_words_confirm_result, NULL,
-                      DIALOG_STYLE_OVERLAY);
+                      setup_words_confirm_result, NULL, DIALOG_STYLE_OVERLAY);
 }
 
 static void build_setup_words_deferred(lv_timer_t *timer) {
@@ -717,8 +758,8 @@ static void build_setup_words_deferred(lv_timer_t *timer) {
   lv_obj_t *setup_row = lv_obj_create(content_area);
   lv_obj_remove_style_all(setup_row);
   lv_obj_set_flex_flow(setup_row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(setup_row, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(setup_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_gap(setup_row, 12, 0);
   lv_obj_set_size(setup_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 
@@ -729,16 +770,15 @@ static void build_setup_words_deferred(lv_timer_t *timer) {
     lv_obj_t *setup_canvas = lv_canvas_create(setup_row);
     lv_canvas_set_draw_buf(setup_canvas, setup_identicon_draw_buf);
     lv_obj_set_size(setup_canvas, IDENTICON_SIZE, IDENTICON_SIZE);
-    render_identicon_to(setup_canvas, setup_identicon_draw_buf,
-                        identicon_data);
+    render_identicon_to(setup_canvas, setup_identicon_draw_buf, identicon_data);
   }
 
   // Words column
   lv_obj_t *words_col = lv_obj_create(setup_row);
   lv_obj_remove_style_all(words_col);
   lv_obj_set_flex_flow(words_col, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(words_col, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_flex_align(words_col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_gap(words_col, 4, 0);
   lv_obj_set_size(words_col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 

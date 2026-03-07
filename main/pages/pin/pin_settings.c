@@ -1,13 +1,13 @@
 // PIN settings page — manage PIN, timeout, wipe threshold
 
 #include "pin_settings.h"
-#include "pin_page.h"
 #include "../../core/pin.h"
 #include "../../core/session.h"
 #include "../../ui/dialog.h"
 #include "../../ui/input_helpers.h"
 #include "../../ui/menu.h"
 #include "../../ui/theme.h"
+#include "pin_page.h"
 
 #include <lvgl.h>
 #include <stdio.h>
@@ -191,10 +191,10 @@ static void disable_confirm_result(bool confirmed, void *user_data) {
 }
 
 static void disable_pin_cb(void) {
-  dialog_show_danger_confirm(
-      "Disable PIN protection?\n\n"
-      "All PIN data will be removed.",
-      disable_confirm_result, NULL, DIALOG_STYLE_OVERLAY);
+  dialog_show_danger_confirm("Disable PIN protection?\n\n"
+                             "All PIN data will be removed.",
+                             disable_confirm_result, NULL,
+                             DIALOG_STYLE_OVERLAY);
 }
 
 // ---------------------------------------------------------------------------
