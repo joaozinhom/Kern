@@ -15,10 +15,20 @@ add_compile_options(-Wno-unused-function)
 set(dev_signing_key "${CMAKE_CURRENT_LIST_DIR}/dev_signing_key.pem")
 if(NOT EXISTS "${dev_signing_key}")
     message(STATUS "Generating dev signing key ${dev_signing_key}")
+    # esptool >= 5 renamed the subcommand to generate-signing-key; 4.x (what
+    # IDF 5.5 pins, and what the nix dev-shell provides) only knows the
+    # underscore spelling. Try the new name, fall back to the old one.
     execute_process(
         COMMAND python -m espsecure generate-signing-key
             --version 2 --scheme rsa3072 "${dev_signing_key}"
-        RESULT_VARIABLE keygen_result)
+        RESULT_VARIABLE keygen_result
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT keygen_result EQUAL 0)
+        execute_process(
+            COMMAND python -m espsecure generate_signing_key
+                --version 2 --scheme rsa3072 "${dev_signing_key}"
+            RESULT_VARIABLE keygen_result)
+    endif()
     if(NOT keygen_result EQUAL 0)
         message(FATAL_ERROR "Failed to generate ${dev_signing_key}")
     endif()
