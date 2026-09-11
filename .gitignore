@@ -28,6 +28,7 @@ simulator/build*/
 simulator/sim_data/
 
 # Tests
+*.dSYM/
 components/bbqr/test/test_bbqr
 components/bbqr/test/test_base32
 components/deflate_codec/test/test_deflate_codec
