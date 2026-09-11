@@ -7,7 +7,7 @@
 #ifndef QR_SCANNER_H
 #define QR_SCANNER_H
 
-#include "../components/video/video.h"
+#include "../../components/video/video.h"
 #include "../utils/attributes.h"
 #include <lvgl.h>
 #include <stdbool.h>
