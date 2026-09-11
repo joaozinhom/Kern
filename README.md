@@ -19,7 +19,7 @@ It signs PSBTs for single-sig, multisig and miniscript policies on both native s
 
 ## Hardware
 
-Kern supports five Waveshare ESP32-P4 boards and one Elecrow CrowPanel board:
+Kern supports five Waveshare ESP32-P4 boards, one Elecrow CrowPanel board, and two M5StickC boards:
 
 | Board | Display | Touch | Camera |
 |-------|---------|-------|--------|
@@ -29,22 +29,26 @@ Kern supports five Waveshare ESP32-P4 boards and one Elecrow CrowPanel board:
 | [ESP32-P4-WiFi6-Touch-LCD-4.3](https://www.waveshare.com/esp32-p4-wifi6-touch-lcd-4.3.htm) (`wave_43`) | 480x800 MIPI DSI | GT911 | OV5647, included |
 | [ESP32-P4-WiFi6-Touch-LCD-7B](https://www.waveshare.com/esp32-p4-wifi6-touch-lcd-7b.htm) (`wave_7b`) | 1024x600 MIPI DSI | GT911 | OV5647, sold separately |
 | [CrowPanel Advanced 10.1" ESP32-P4](https://github.com/Elecrow-RD/CrowPanel-Advanced-10.1inch-ESP32-P4-HMI-AI-Display-1024x600-IPS-Touch-Screen) and 7" siblings (`crowpanel`) | 1024x600 MIPI DSI | GT911 | SC2336, included |
+| [M5StickC Plus](https://docs.m5stack.com/en/core/m5stickc_plus) (`m5stickc_plus`) | 240x135 SPI | A/B buttons | None |
+| [M5StickC Plus2](https://docs.m5stack.com/en/core/M5StickC%20PLUS2) (`m5stickc_plus2`) | 240x135 SPI | A/B buttons | None |
 
 ESP32-P4 does not contain radio (WiFi, BLE), but these boards have a radio in a secondary chip (ESP32-C6 mini). Exploring radio-less, simpler and cheaper ESP32-P4-only boards is part of the project's hardware research.
 
-A MIPI CSI camera module is required for all boards. Kern ships drivers for the
+An MIPI CSI camera module is required for the ESP32-P4 boards. Kern ships drivers for the
 OV5647 and SC2336 sensors and probes for whichever one is attached at boot, so
 either sensor works on any board. The 4B is the one board sold without a camera:
 pair it with an OV5647 module carrying a DW9714 voice coil motor, which is the
 only combination that gets autofocus.
 
+M5StickC boards run without a camera; QR scanning and camera entropy are unavailable. Button A activates the focused control, Button B advances focus, and pressing both buttons sends Back.
+
 ## Prerequisites
 
-Kern targets [ESP-IDF v6.1](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32p4/get-started/index.html). Install it for the `esp32p4` target:
+Kern targets [ESP-IDF v6.1](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32p4/get-started/index.html). Install it for the `esp32p4` and `esp32` targets:
 
 ```bash
 git clone --depth 1 --recurse-submodules --shallow-submodules -b v6.1 https://github.com/espressif/esp-idf.git ~/esp/esp-idf
-~/esp/esp-idf/install.sh esp32p4
+~/esp/esp-idf/install.sh esp32p4,esp32
 . ~/esp/esp-idf/export.sh
 ```
 
@@ -72,7 +76,7 @@ git submodule update --init --recursive
 
 ### Building the Project
 
-Build with [just](https://github.com/casey/just) (recommended) or `idf.py` directly. All `just` commands accept a board parameter, one of `wave_4b` (default), `wave_35`, `wave_5`, `wave_43`, `crowpanel`, or `wave_7b`:
+Build with [just](https://github.com/casey/just) (recommended) or `idf.py` directly. All `just` commands accept a board parameter, one of `wave_4b` (default), `wave_35`, `wave_5`, `wave_43`, `crowpanel`, `wave_7b`, `m5stickc_plus`, or `m5stickc_plus2`:
 
 ```bash
 just build              # Build for wave_4b (default)
@@ -81,6 +85,8 @@ just build wave_5       # Build for wave_5
 just build wave_43      # Build for wave_43
 just build crowpanel    # Build for CrowPanel 7" / 10.1"
 just build wave_7b      # Build for wave_7b
+just build m5stickc_plus
+just build m5stickc_plus2
 just flash wave_5       # Flash for wave_5
 just monitor            # Serial monitor
 just clean              # Wipe all build_<board> dirs + sdkconfig
@@ -106,6 +112,12 @@ idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.crowpanel' b
 
 # wave_7b
 idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.wave_7b' build
+
+# M5StickC Plus
+idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.m5stickc_plus' build
+
+# M5StickC Plus2
+idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.m5stickc_plus2' build
 ```
 
 > **Note:** `just` builds each board into its own `build_<board>/` directory, so switching boards needs no clean. The raw `idf.py` commands above share the default `build/` directory and `sdkconfig`: run `idf.py fullclean && rm sdkconfig` when switching boards that way.
