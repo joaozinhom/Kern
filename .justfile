@@ -1,12 +1,12 @@
 export IDF_PATH := env_var("HOME") + "/esp/esp-idf"
 export IDF_PATH_FORCE := "1"
 
-# Board parameter: "wave_4b" (default), "wave_35", "wave_5", "wave_43", "crowpanel", or "wave_7b"
+# Board parameter: "wave_4b" (default), "wave_35", "wave_5", "wave_43", "crowpanel", "wave_7b", "m5stickc_plus", or "m5stickc_plus2"
 # Usage: just build wave_35, just flash wave_4b, just build wave_5, just build wave_7b
 # Each board builds into its own build_<board>/ directory, so switching
 # boards is instant (no clean required) and per-board builds stay incremental.
 
-boards := "wave_4b wave_35 wave_5 wave_43 crowpanel wave_7b"
+boards := "wave_4b wave_35 wave_5 wave_43 crowpanel wave_7b m5stickc_plus m5stickc_plus2"
 
 _check_board board:
     #!/usr/bin/env sh
@@ -45,7 +45,7 @@ test:
     ./scripts/test.sh
 
 clean:
-    rm -fRd build build_wave_4b build_wave_35 build_wave_5 build_wave_43 build_crowpanel build_wave_7b
+    rm -fRd build build_wave_4b build_wave_35 build_wave_5 build_wave_43 build_crowpanel build_wave_7b build_m5stickc_plus build_m5stickc_plus2
     rm -fRd build_pbkdf2_*
     rm -f sdkconfig
     rm -fRd compile_commands.json

@@ -7,6 +7,9 @@
 
 /* System includes */
 #include "esp_err.h"
+#include "driver/i2c_master.h"
+
+#if CONFIG_KERN_HAS_CAMERA
 #include "esp_log.h"
 #include "esp_video_device.h"
 #include "esp_video_init.h"
@@ -14,6 +17,7 @@
 
 /* BSP includes */
 #include "bsp/esp-bsp.h"
+#endif
 
 /* ----------------------- Type Definitions ----------------------- */
 
@@ -22,6 +26,7 @@
  *
  * Defines supported video pixel formats mapped to V4L2 format constants.
  */
+#if CONFIG_KERN_HAS_CAMERA
 typedef enum {
   APP_VIDEO_FMT_RAW8 = V4L2_PIX_FMT_SBGGR8, /**< 8-bit raw Bayer BGGR format */
   APP_VIDEO_FMT_RAW10 =
@@ -31,6 +36,7 @@ typedef enum {
   APP_VIDEO_FMT_RGB888 = V4L2_PIX_FMT_RGB24,  /**< RGB888 24-bit format */
   APP_VIDEO_FMT_YUV420 = V4L2_PIX_FMT_YUV420, /**< YUV420 planar format */
 } video_fmt_t;
+#endif
 
 /**
  * @brief Video frame operation callback type
@@ -49,6 +55,7 @@ typedef void (*app_video_frame_operation_cb_t)(uint8_t *camera_buf,
 
 /* ----------------------- Macros and Constants ----------------------- */
 
+#if CONFIG_KERN_HAS_CAMERA
 #define CAM_DEV_PATH                                                           \
   (ESP_VIDEO_MIPI_CSI_DEVICE_NAME) /**< Default camera device path */
 #define CAM_BUF_NUM (2)            /**< Default number of camera buffers */
@@ -58,6 +65,7 @@ typedef void (*app_video_frame_operation_cb_t)(uint8_t *camera_buf,
 #define APP_VIDEO_FMT (APP_VIDEO_FMT_RGB888)
 #else
 #define APP_VIDEO_FMT (APP_VIDEO_FMT_RGB565)
+#endif
 #endif
 
 /* ----------------------- Function Declarations ----------------------- */
