@@ -27,15 +27,41 @@ elseif(CONFIG_KERN_BOARD_WAVE_7B)
     set(TOUCH_DRIVER esp_lcd_touch_gt911)
     set(FONT_POLICY_WIDTH 1024)
     set(FONT_POLICY_HEIGHT 600)
+    set(BSP_COMPONENT wave_4b)
+elseif(CONFIG_KERN_BOARD_M5STICKC_PLUS OR CONFIG_KERN_BOARD_M5STICKC_PLUS2)
+    set(BSP_COMPONENT m5stickcplus)
+    set(FONT_POLICY_WIDTH 240)
+    set(FONT_POLICY_HEIGHT 135)
+    list(FILTER SOURCES EXCLUDE REGEX ".*/qr/scanner\\.c$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/pages/capture_entropy\\.c$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/pages/dev_tools/snapshot\\.c$")
+endif()
+
+if(NOT DEFINED BSP_COMPONENT)
+    if(CONFIG_KERN_BOARD_WAVE_4B)
+        set(BSP_COMPONENT wave_4b)
+    elseif(CONFIG_KERN_BOARD_WAVE_35)
+        set(BSP_COMPONENT wave_35)
+    elseif(CONFIG_KERN_BOARD_WAVE_5)
+        set(BSP_COMPONENT wave_5)
+    elseif(CONFIG_KERN_BOARD_WAVE_43)
+        set(BSP_COMPONENT wave_43)
+    elseif(CONFIG_KERN_BOARD_CROWPANEL)
+        set(BSP_COMPONENT crowpanel)
+    endif()
+endif()
+
+if(CONFIG_KERN_HAS_CAMERA)
+    set(CAMERA_REQUIREMENTS k_quirc esp_driver_ppa)
 endif()
 
 idf_component_register(
     SRCS ${SOURCES}
     INCLUDE_DIRS .
-    PRIV_REQUIRES lvgl ${TOUCH_DRIVER} k_quirc esp_timer wave_4b wave_35 wave_5 wave_43
-                  crowpanel wave_7b libwally-core cUR sd_card bbqr deflate_codec video spiffs
+    PRIV_REQUIRES lvgl ${TOUCH_DRIVER} ${BSP_COMPONENT} ${CAMERA_REQUIREMENTS} esp_timer
+                  libwally-core cUR sd_card bbqr deflate_codec video spiffs
                   nvs_flash efuse esp_hw_support esp_app_format mbedtls
-                  esp_driver_ppa app_update bootloader_support
+                  driver app_update bootloader_support
 )
 
 # Ignoring a warn_unused_result return is a build error, not a warning. The
