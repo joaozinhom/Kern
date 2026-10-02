@@ -9,3 +9,5 @@ dependencies:
     # Any board running the ISP pipeline controller then dies on an illegal sh2add instruction
     # inside esp_ipa_pipeline_create (seen on crowpanel/SC2336).
     version: "~2.3.0"
+    rules:
+      - if: "target == esp32p4"

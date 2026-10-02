@@ -1,13 +1,13 @@
-if(CONFIG_KERN_HAS_CAMERA)
-    set(video_source "video.c")
-    set(video_requirements esp_cam_sensor esp_video esp_sccb_intf wave_4b wave_35 wave_5 wave_43 crowpanel wave_7b)
+if(IDF_TARGET STREQUAL "esp32p4")
+    idf_component_register(
+        SRCS "video.c"
+        INCLUDE_DIRS "."
+        REQUIRES esp_cam_sensor esp_driver_i2c esp_video esp_sccb_intf wave_4b wave_35 wave_5 wave_43 crowpanel wave_7b secure_memory
+    )
 else()
-    set(video_source "video_stub.c")
-    set(video_requirements driver)
+    idf_component_register(
+        SRCS "video_stub.c"
+        INCLUDE_DIRS "."
+        REQUIRES esp_driver_i2c secure_memory
+    )
 endif()
-
-idf_component_register(
-    SRCS ${video_source}
-    INCLUDE_DIRS "."
-    REQUIRES ${video_requirements} secure_memory
-)

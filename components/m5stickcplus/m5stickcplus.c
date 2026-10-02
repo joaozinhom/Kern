@@ -6,7 +6,7 @@
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_st7789.h"
+#include "esp_lcd_panel_st7789.h"
 #include "esp_log.h"
 
 static esp_lcd_panel_io_handle_t io_handle;

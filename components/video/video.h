@@ -6,8 +6,8 @@
 #include <stdint.h>
 
 /* System includes */
-#include "esp_err.h"
 #include "driver/i2c_master.h"
+#include "esp_err.h"
 
 #if CONFIG_KERN_HAS_CAMERA
 #include "esp_log.h"

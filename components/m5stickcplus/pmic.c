@@ -1,6 +1,6 @@
 #include "bsp/m5stickcplus.h"
 #include "bsp/pmic.h"
-#include "driver/adc_oneshot.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_check.h"
 
 static adc_oneshot_unit_handle_t adc_handle;
