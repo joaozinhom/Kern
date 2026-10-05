@@ -4,7 +4,7 @@ menu "Kern Configuration"
         prompt "Target board"
         default KERN_BOARD_WAVE_4B
         help
-            Select the ESP32-P4 board variant.
+            Select the target board variant.
 
         config KERN_BOARD_WAVE_4B
             bool "Waveshare ESP32-P4-WiFi6-Touch-LCD-4B (720x720)"
@@ -23,10 +23,22 @@ menu "Kern Configuration"
 
         config KERN_BOARD_WAVE_7B
             bool "Waveshare ESP32-P4-WiFi6-Touch-LCD-7B (1024x600 MIPI DSI)"
+
+        config KERN_BOARD_M5STICKC_PLUS
+            bool "M5StickC Plus (240x135, buttons)"
+
+        config KERN_BOARD_M5STICKC_PLUS2
+            bool "M5StickC Plus2 (240x135, buttons)"
     endchoice
+
+    config KERN_HAS_CAMERA
+        bool
+        default n if KERN_BOARD_M5STICKC_PLUS || KERN_BOARD_M5STICKC_PLUS2
+        default y
 
     config KERN_PBKDF2_HW_SHA
         bool "Drive PBKDF2-HMAC-SHA256 on the P4 SHA accelerator"
+        depends on IDF_TARGET_ESP32P4
         default y
         help
             Holds the SHA peripheral across batches of PBKDF2 iterations and

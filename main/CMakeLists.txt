@@ -2,6 +2,14 @@ file(GLOB_RECURSE SOURCES "*.c")
 list(FILTER SOURCES EXCLUDE REGEX ".*/core/test/.*")
 list(FILTER SOURCES EXCLUDE REGEX ".*/qr/test/.*")
 
+if(IDF_TARGET STREQUAL "esp32p4")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/qr/scanner_no_camera\\.c$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/pages/capture_entropy_no_camera\\.c$")
+else()
+    list(FILTER SOURCES EXCLUDE REGEX ".*/qr/scanner\\.c$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/pages/capture_entropy\\.c$")
+endif()
+
 # Select touch driver based on board
 if(CONFIG_KERN_BOARD_WAVE_4B)
     set(TOUCH_DRIVER esp_lcd_touch_gt911)
@@ -27,15 +35,27 @@ elseif(CONFIG_KERN_BOARD_WAVE_7B)
     set(TOUCH_DRIVER esp_lcd_touch_gt911)
     set(FONT_POLICY_WIDTH 1024)
     set(FONT_POLICY_HEIGHT 600)
+    set(BSP_COMPONENT wave_4b)
+elseif(CONFIG_KERN_BOARD_M5STICKC_PLUS OR CONFIG_KERN_BOARD_M5STICKC_PLUS2)
+    set(BSP_COMPONENT m5stickcplus)
+    set(FONT_POLICY_WIDTH 240)
+    set(FONT_POLICY_HEIGHT 135)
+endif()
+
+if(IDF_TARGET STREQUAL "esp32p4")
+    set(BSP_REQUIREMENTS wave_4b wave_35 wave_5 wave_43 crowpanel wave_7b)
+    set(CAMERA_REQUIREMENTS k_quirc esp_driver_ppa)
+else()
+    set(BSP_REQUIREMENTS m5stickcplus)
 endif()
 
 idf_component_register(
     SRCS ${SOURCES}
     INCLUDE_DIRS .
-    PRIV_REQUIRES lvgl ${TOUCH_DRIVER} k_quirc esp_timer wave_4b wave_35 wave_5 wave_43
-                  crowpanel wave_7b libwally-core cUR sd_card bbqr deflate_codec video spiffs
+    PRIV_REQUIRES lvgl ${TOUCH_DRIVER} ${BSP_REQUIREMENTS} ${CAMERA_REQUIREMENTS} esp_timer
+                  libwally-core cUR sd_card bbqr deflate_codec video spiffs
                   nvs_flash efuse esp_hw_support esp_app_format mbedtls bip138
-                  esp_driver_ppa app_update bootloader_support secure_memory bsp_common
+                  driver app_update bootloader_support secure_memory bsp_common
 )
 
 # Ignoring a warn_unused_result return is a build error, not a warning. The
